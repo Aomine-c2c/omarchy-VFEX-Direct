@@ -30,7 +30,11 @@ BarWidget {
         if (panelLoader.item) panelLoader.item.closeForPopoutSwitch()
     }
 
-    function refresh() {
+    function refresh(forceFetch) {
+        if (forceFetch) {
+            if (!fetchProc.running) fetchProc.running = true
+            return
+        }
         if (!vfexProc.running) vfexProc.running = true
     }
 
@@ -47,6 +51,15 @@ BarWidget {
     onBarChanged: injectPanel()
 
     Process {
+        id: fetchProc
+        command: ["python3", Qt.resolvedUrl("vfex.py").toString().replace("file://", ""), "fetch"]
+        running: false
+        onExited: function() {
+            if (!vfexProc.running) vfexProc.running = true
+        }
+    }
+
+    Process {
         id: vfexProc
         command: ["python3", Qt.resolvedUrl("vfex.py").toString().replace("file://", ""), "panel-json"]
         running: true
@@ -55,8 +68,10 @@ BarWidget {
                 try {
                     var parsed = JSON.parse(data)
                     root.summaryData = parsed
-                    root.barText = parsed.text || "VFEX --"
-                    root.tooltipBody = parsed.tooltip || "VFEX Direct"
+                    var alerts = parsed.alerts || []
+                    var prefix = alerts.length > 0 ? "⚠ " : ""
+                    root.barText = prefix + (parsed.text || "VFEX --")
+                    root.tooltipBody = (alerts.length > 0 ? ("Alerts:\n" + alerts.join("\n") + "\n\n") : "") + (parsed.tooltip || "VFEX Direct")
                     if (panelLoader.item) panelLoader.item.summaryData = parsed
                 } catch (e) {
                 }

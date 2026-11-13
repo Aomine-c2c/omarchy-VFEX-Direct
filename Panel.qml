@@ -13,8 +13,10 @@ Panel {
     property var hostWidget: null
     property var summaryData: ({ text: "VFEX --", total_value: 0, total_pnl: 0, total_pnl_pct: 0, items: [], watchlist: [] })
     property string manualMode: "price"
+    property string alertDirection: "above"
     property string statusMessage: ""
     property bool statusError: false
+    readonly property var knownSymbols: ["ASUN", "AXIA", "BIND", "CALD", "ECO", "EDGR", "FCA", "INFR", "INSC", "NTFD", "PHL", "SCIL", "SIM", "WTN"]
 
     Process {
         id: manualProc
@@ -94,7 +96,7 @@ Panel {
                             cursorShape: Qt.PointingHandCursor
                             onClicked: {
                                 if (root.hostWidget && typeof root.hostWidget.refresh === "function")
-                                    root.hostWidget.refresh()
+                                    root.hostWidget.refresh(true)
                             }
                         }
                     }
@@ -128,6 +130,11 @@ Panel {
                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                             font.pixelSize: Style.font.body
                             font.bold: true
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: symbolInput.text = modelData.symbol
+                            }
                         }
                         Text {
                             width: contentColumn.width * 0.23
@@ -155,6 +162,32 @@ Panel {
                     }
                 }
 
+                Column {
+                    width: parent.width
+                    visible: (root.summaryData.alerts || []).length > 0
+                    spacing: Style.space(4)
+
+                    Text {
+                        text: "⚠ Triggered Alerts"
+                        color: "#f9e2af"
+                        font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                        font.pixelSize: Style.font.body
+                        font.bold: true
+                    }
+
+                    Repeater {
+                        model: root.summaryData.alerts || []
+                        delegate: Text {
+                            width: contentColumn.width
+                            text: "• " + modelData
+                            color: "#f9e2af"
+                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                            font.pixelSize: Style.font.small || Style.font.body
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+                }
+
                 Text {
                     width: parent.width
                     visible: (root.summaryData.watchlist || []).length > 0
@@ -170,14 +203,19 @@ Panel {
                     delegate: Row {
                         width: contentColumn.width
                         Text {
-                            width: contentColumn.width * 0.35
+                            width: contentColumn.width * 0.32
                             text: modelData.symbol
                             color: "#cdd6f4"
                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                             font.pixelSize: Style.font.body
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: symbolInput.text = modelData.symbol
+                            }
                         }
                         Text {
-                            width: contentColumn.width * 0.25
+                            width: contentColumn.width * 0.22
                             text: modelData.buy ? "BUY" : ""
                             color: "#a6e3a1"
                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
@@ -185,12 +223,31 @@ Panel {
                             font.bold: true
                         }
                         Text {
-                            width: contentColumn.width * 0.40
+                            width: contentColumn.width * 0.36
                             horizontalAlignment: Text.AlignRight
                             text: modelData.price !== null && modelData.price !== undefined ? ("$" + Number(modelData.price).toFixed(4)) : "N/A"
                             color: "#cdd6f4"
                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                             font.pixelSize: Style.font.body
+                        }
+                        Text {
+                            width: contentColumn.width * 0.10
+                            horizontalAlignment: Text.AlignRight
+                            text: "×"
+                            color: "#f38ba8"
+                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                            font.pixelSize: Style.font.body
+                            font.bold: true
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                enabled: !manualProc.running
+                                onClicked: {
+                                    var script = Qt.resolvedUrl("vfex.py").toString().replace("file://", "")
+                                    manualProc.command = ["python3", script, "watch", "remove", modelData.symbol]
+                                    manualProc.running = true
+                                }
+                            }
                         }
                     }
                 }
@@ -224,7 +281,9 @@ Panel {
                                 model: [
                                     { key: "price", label: "Price" },
                                     { key: "buy", label: "Buy" },
-                                    { key: "sell", label: "Sell" }
+                                    { key: "sell", label: "Sell" },
+                                    { key: "watch", label: "+Watch" },
+                                    { key: "alert", label: "Alert" }
                                 ]
                                 delegate: Rectangle {
                                     width: modeLabel.implicitWidth + Style.space(10)
@@ -258,7 +317,7 @@ Panel {
                         spacing: Style.space(6)
 
                         Rectangle {
-                            width: root.manualMode === "price" ? parent.width * 0.36 : parent.width * 0.25
+                            width: root.manualMode === "watch" ? parent.width * 0.74 : (root.manualMode === "price" ? parent.width * 0.36 : parent.width * 0.25)
                             height: Style.space(26)
                             radius: 4
                             color: "#313244"
@@ -286,7 +345,7 @@ Panel {
                         }
 
                         Rectangle {
-                            visible: root.manualMode !== "price"
+                            visible: root.manualMode === "buy" || root.manualMode === "sell"
                             width: parent.width * 0.22
                             height: Style.space(26)
                             radius: 4
@@ -315,6 +374,32 @@ Panel {
                         }
 
                         Rectangle {
+                            visible: root.manualMode === "alert"
+                            width: parent.width * 0.22
+                            height: Style.space(26)
+                            radius: 4
+                            color: "#313244"
+                            border.color: "#45475a"
+                            border.width: 1
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: root.alertDirection === "above" ? "Above" : "Below"
+                                color: "#89b4fa"
+                                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                font.pixelSize: Style.font.small || Style.font.body
+                                font.bold: true
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.alertDirection = root.alertDirection === "above" ? "below" : "above"
+                            }
+                        }
+
+                        Rectangle {
+                            visible: root.manualMode !== "watch"
                             width: root.manualMode === "price" ? parent.width * 0.38 : parent.width * 0.27
                             height: Style.space(26)
                             radius: 4
@@ -365,18 +450,25 @@ Panel {
                                     var sym = symbolInput.text.trim().toUpperCase()
                                     var prc = priceInput.text.trim()
                                     var sh = sharesInput.text.trim()
-                                    if (!sym || !prc) {
+                                    var script = Qt.resolvedUrl("vfex.py").toString().replace("file://", "")
+                                    if (!sym) {
                                         root.statusError = true
-                                        root.statusMessage = "Enter symbol and price"
+                                        root.statusMessage = "Enter symbol"
                                         return
                                     }
-                                    var script = Qt.resolvedUrl("vfex.py").toString().replace("file://", "")
-                                    if (root.manualMode === "price") {
+                                    if (root.manualMode === "watch") {
+                                        manualProc.command = ["python3", script, "watch", "add", sym]
+                                    } else if (root.manualMode === "price") {
+                                        if (!prc) {
+                                            root.statusError = true
+                                            root.statusMessage = "Enter price"
+                                            return
+                                        }
                                         manualProc.command = ["python3", script, "price", sym, prc]
                                     } else {
-                                        if (!sh) {
+                                        if (!sh || !prc) {
                                             root.statusError = true
-                                            root.statusMessage = "Enter shares"
+                                            root.statusMessage = "Enter shares and price"
                                             return
                                         }
                                         manualProc.command = ["python3", script, root.manualMode, sym, sh, prc]

@@ -328,6 +328,7 @@ def format_panel_json(store: VFEXStore) -> dict[str, Any]:
         "items": summary["items"],
         "watchlist": watchlist_items,
         "recommendations": list(recs.values()),
+        "alerts": store.check_alerts(notify=False),
     }
 
 
