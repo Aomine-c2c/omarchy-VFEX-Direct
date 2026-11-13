@@ -56,7 +56,7 @@ Panel {
 
                     Text {
                         text: "VFEX Direct (USD)"
-                        color: root.barForeground
+                        color: "#cdd6f4"
                         font.family: root.bar ? root.bar.fontFamily : Style.font.family
                         font.pixelSize: Style.font.subtitle
                         font.bold: true
@@ -105,7 +105,7 @@ Panel {
                         Text {
                             width: content.width * 0.22
                             text: modelData.symbol
-                            color: root.barForeground
+                            color: "#cdd6f4"
                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                             font.pixelSize: Style.font.body
                             font.bold: true
@@ -113,14 +113,14 @@ Panel {
                         Text {
                             width: content.width * 0.23
                             text: Number(modelData.shares) + " sh"
-                            color: root.barForeground
+                            color: "#cdd6f4"
                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                             font.pixelSize: Style.font.body
                         }
                         Text {
                             width: content.width * 0.25
                             text: "$" + Number(modelData.price).toFixed(4)
-                            color: root.barForeground
+                            color: "#cdd6f4"
                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                             font.pixelSize: Style.font.body
                         }
@@ -140,7 +140,7 @@ Panel {
                     width: parent.width
                     visible: (root.summaryData.watchlist || []).length > 0
                     text: "Watchlist"
-                    color: root.barForeground
+                    color: "#cdd6f4"
                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                     font.pixelSize: Style.font.body
                     font.bold: true
@@ -153,7 +153,7 @@ Panel {
                         Text {
                             width: content.width * 0.35
                             text: modelData.symbol
-                            color: root.barForeground
+                            color: "#cdd6f4"
                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                             font.pixelSize: Style.font.body
                         }
@@ -169,7 +169,7 @@ Panel {
                             width: content.width * 0.40
                             horizontalAlignment: Text.AlignRight
                             text: modelData.price !== null && modelData.price !== undefined ? ("$" + Number(modelData.price).toFixed(4)) : "N/A"
-                            color: root.barForeground
+                            color: "#cdd6f4"
                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                             font.pixelSize: Style.font.body
                         }
