@@ -150,14 +150,22 @@ Panel {
                     delegate: Row {
                         width: content.width
                         Text {
-                            width: content.width * 0.5
+                            width: content.width * 0.35
                             text: modelData.symbol
                             color: root.barForeground
                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                             font.pixelSize: Style.font.body
                         }
                         Text {
-                            width: content.width * 0.5
+                            width: content.width * 0.25
+                            text: modelData.buy ? "BUY" : ""
+                            color: "#a6e3a1"
+                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                            font.pixelSize: Style.font.body
+                            font.bold: true
+                        }
+                        Text {
+                            width: content.width * 0.40
                             horizontalAlignment: Text.AlignRight
                             text: modelData.price !== null && modelData.price !== undefined ? ("$" + Number(modelData.price).toFixed(4)) : "N/A"
                             color: root.barForeground

@@ -45,6 +45,21 @@ class TestVFEXStore(unittest.TestCase):
         self.assertEqual(wb["class"], "profit")
         self.assertIn("PHL", wb["tooltip"])
 
+    def test_buy_recommendations_and_csv_import(self) -> None:
+        csv_path = Path(self.tmp.name) / "prices.csv"
+        csv_path.write_text("symbol,price\nINSC,0.50\nSIM,0.30\n", encoding="utf-8")
+        count = self.store.import_csv(csv_path)
+        self.assertEqual(count, 2)
+        self.store.state["history"]["INSC"] = [
+            {"date": "2026-11-11", "price": 0.60},
+            {"date": "2026-11-12", "price": 0.60},
+            {"date": "2026-11-13", "price": 0.50},
+        ]
+        self.store.set_price("INSC", 0.50)
+        recs = self.store.buy_recommendations()
+        self.assertEqual(len(recs), 1)
+        self.assertEqual(recs[0]["symbol"], "INSC")
+
 
 if __name__ == "__main__":
     unittest.main()

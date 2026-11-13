@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import os
 import subprocess
@@ -52,6 +53,7 @@ class VFEXStore:
         return {
             "watchlist": ["INSC", "SIM", "PHL"],
             "prices": {},
+            "history": {},
             "portfolio": {},
             "alerts": [],
         }
@@ -61,11 +63,20 @@ class VFEXStore:
 
     def set_price(self, symbol: str, price: float, source: str = "manual") -> None:
         sym = symbol.upper()
+        now = datetime.now(timezone.utc)
+        today = now.date().isoformat()
         self.state["prices"][sym] = {
             "price": round(price, 4),
             "source": source,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": now.isoformat(),
         }
+        history = self.state.setdefault("history", {}).setdefault(sym, [])
+        if history and history[-1].get("date") == today:
+            history[-1]["price"] = round(price, 4)
+        else:
+            history.append({"date": today, "price": round(price, 4)})
+            if len(history) > 30:
+                self.state["history"][sym] = history[-30:]
         self.save()
 
     def get_price(self, symbol: str) -> float | None:
@@ -174,6 +185,43 @@ class VFEXStore:
             self.save()
         return triggered_now
 
+    def buy_recommendations(self, discount_pct: float = 5.0) -> list[dict[str, Any]]:
+        """Return symbols trading >= discount_pct below 30-day average or below a target alert."""
+        recs: list[dict[str, Any]] = []
+        history_map = self.state.get("history", {})
+        below_targets = {
+            a["symbol"]: float(a["target"])
+            for a in self.state.get("alerts", [])
+            if a.get("direction") == "below"
+        }
+        for sym, entry in sorted(self.state.get("prices", {}).items()):
+            cur = float(entry["price"])
+            hist = history_map.get(sym, [])
+            avg30 = sum(float(h["price"]) for h in hist) / len(hist) if hist else cur
+            drop_pct = ((avg30 - cur) / avg30 * 100.0) if avg30 > 0 else 0.0
+            target = below_targets.get(sym)
+            reasons = []
+            if len(hist) >= 2 and drop_pct >= discount_pct:
+                reasons.append(f"{drop_pct:.1f}% below 30d avg (${avg30:.4f})")
+            if target is not None and cur <= target:
+                reasons.append(f"at/below target (${target:.4f})")
+            if reasons:
+                recs.append({"symbol": sym, "price": cur, "avg30": round(avg30, 4), "reasons": reasons})
+        return recs
+
+    def import_csv(self, csv_path: Path) -> int:
+        """Import symbol,price rows from a VFEX Direct CSV export."""
+        count = 0
+        with csv_path.open("r", encoding="utf-8", newline="") as fh:
+            reader = csv.DictReader(fh)
+            for row in reader:
+                sym = (row.get("symbol") or row.get("Symbol") or row.get("SYMBOL") or "").strip().upper()
+                raw_price = (row.get("price") or row.get("Price") or row.get("PRICE") or "").strip()
+                if sym and raw_price:
+                    self.set_price(sym, float(raw_price), source="csv")
+                    count += 1
+        return count
+
 
 def send_notification(title: str, body: str) -> None:
     """Send a desktop notification via notify-send if available."""
@@ -245,9 +293,10 @@ def format_panel_json(store: VFEXStore) -> dict[str, Any]:
     fetch_vfex_prices(store, force=False)
     wb = format_waybar(store)
     summary = store.portfolio_summary()
+    recs = {r["symbol"]: r for r in store.buy_recommendations()}
     watchlist_items = []
     for sym in store.state.get("watchlist", []):
-        watchlist_items.append({"symbol": sym, "price": store.get_price(sym)})
+        watchlist_items.append({"symbol": sym, "price": store.get_price(sym), "buy": sym in recs})
     return {
         **wb,
         "total_value": round(summary["total_value"], 2),
@@ -256,6 +305,7 @@ def format_panel_json(store: VFEXStore) -> dict[str, Any]:
         "total_pnl_pct": round(summary["total_pnl_pct"], 2),
         "items": summary["items"],
         "watchlist": watchlist_items,
+        "recommendations": list(recs.values()),
     }
 
 
@@ -292,6 +342,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("waybar", help="Output Waybar JSON")
     sub.add_parser("panel-json", help="Output structured JSON for Omarchy BarWidget/Panel")
+    sub.add_parser("recommend", help="Show BUY recommendations based on 30d avg and targets")
+    p_import = sub.add_parser("import", help="Import prices from a CSV file (symbol,price)")
+    p_import.add_argument("file", help="Path to CSV file")
     sub.add_parser("symbols", help="List known VFEX symbols")
     return parser
 
@@ -359,6 +412,16 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(format_waybar(store)))
     elif args.command == "panel-json":
         print(json.dumps(format_panel_json(store)))
+    elif args.command == "recommend":
+        recs = store.buy_recommendations()
+        if not recs:
+            print("No BUY signals right now.")
+        else:
+            for r in recs:
+                print(f"BUY {r['symbol']}: ${r['price']:.4f} ({', '.join(r['reasons'])})")
+    elif args.command == "import":
+        count = store.import_csv(Path(args.file))
+        print(f"Imported {count} price(s) from {args.file}.")
     elif args.command == "symbols":
         for sym, name in sorted(KNOWN_VFEX_SYMBOLS.items()):
             print(f"{sym:<6} {name}")
