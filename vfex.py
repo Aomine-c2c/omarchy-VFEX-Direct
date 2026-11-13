@@ -183,15 +183,21 @@ def send_notification(title: str, body: str) -> None:
         pass
 
 
-def fetch_vfex_prices(store: VFEXStore, url: str = "https://www.vfex.exchange") -> dict[str, Any]:
-    """Attempt to reach VFEX and return status; preserves cached prices if site is JS-rendered."""
+def fetch_vfex_prices(store: VFEXStore, url: str = "https://www.vfex.exchange", force: bool = False) -> dict[str, Any]:
+    """Fetch VFEX prices once per day (or when forced), preserving cached prices on fallback."""
+    today = datetime.now(timezone.utc).date().isoformat()
+    if not force and store.state.get("last_fetch_date") == today:
+        return {"ok": True, "cached": True, "message": f"Already fetched today ({today}); using cached prices."}
+
     req = urllib.request.Request(url, headers={"User-Agent": "omarchy-VFEX-Direct/0.1"})
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             status = resp.status
-        return {"ok": True, "status": status, "message": "VFEX reachable. Use `vfex price <SYM> <USD>` to update quotes if live feed requires VFEX Direct login."}
+        store.state["last_fetch_date"] = today
+        store.save()
+        return {"ok": True, "cached": False, "status": status, "message": f"VFEX checked ({today}). Use `vfex price <SYM> <USD>` to update quotes if live feed requires VFEX Direct login."}
     except (urllib.error.URLError, TimeoutError) as exc:
-        return {"ok": False, "status": None, "message": f"Could not reach VFEX ({exc}). Using cached prices."}
+        return {"ok": False, "cached": True, "status": None, "message": f"Could not reach VFEX ({exc}). Using cached prices."}
 
 
 def format_waybar(store: VFEXStore) -> dict[str, str]:
@@ -236,6 +242,7 @@ def format_waybar(store: VFEXStore) -> dict[str, str]:
 
 def format_panel_json(store: VFEXStore) -> dict[str, Any]:
     """Build structured JSON for BarWidget.qml and Panel.qml."""
+    fetch_vfex_prices(store, force=False)
     wb = format_waybar(store)
     summary = store.portfolio_summary()
     watchlist_items = []
@@ -301,7 +308,7 @@ def main(argv: list[str] | None = None) -> int:
             p = store.get_price(args.symbol)
             print(f"{args.symbol.upper()}: ${p:.4f}" if p is not None else f"{args.symbol.upper()}: N/A")
     elif args.command == "fetch":
-        res = fetch_vfex_prices(store)
+        res = fetch_vfex_prices(store, force=True)
         print(res["message"])
     elif args.command == "watch":
         if args.action == "list":
