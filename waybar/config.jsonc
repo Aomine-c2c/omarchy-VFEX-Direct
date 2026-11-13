@@ -1,0 +1,9 @@
+{
+  "custom/vfex": {
+    "exec": "vfex waybar",
+    "return-type": "json",
+    "interval": 60,
+    "tooltip": true,
+    "on-click": "alacritty -e bash -c 'vfex portfolio; read -p \"Press Enter to close...\"'"
+  }
+}

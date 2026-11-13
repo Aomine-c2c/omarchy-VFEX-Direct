@@ -1,0 +1,16 @@
+#custom-vfex {
+  padding: 0 10px;
+  font-weight: 600;
+}
+
+#custom-vfex.profit {
+  color: #a6e3a1;
+}
+
+#custom-vfex.loss {
+  color: #f38ba8;
+}
+
+#custom-vfex.neutral {
+  color: #cdd6f4;
+}
