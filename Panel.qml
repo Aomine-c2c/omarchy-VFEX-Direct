@@ -32,12 +32,13 @@ Panel {
         owner: root.hostWidget || root
         bar: root.bar
         open: root.opened
-        focusTarget: keyCatcher
+        focusTarget: panel.loadedContent
         contentWidth: panel.fittedContentWidth(Style.space(360))
-        contentHeight: panel.fittedContentHeight(content.implicitHeight)
+        contentHeight: panel.fittedContentHeight(panel.loadedContentHeight)
 
-        PanelKeyCatcher {
+        content: PanelKeyCatcher {
             id: keyCatcher
+            implicitHeight: contentColumn.implicitHeight
             anchors.fill: parent
             onCloseRequested: root.close()
             onTabRequested: function(direction) {
@@ -45,7 +46,7 @@ Panel {
             }
 
             Column {
-                id: content
+                id: contentColumn
                 width: parent.width
                 spacing: Style.space(10)
 
