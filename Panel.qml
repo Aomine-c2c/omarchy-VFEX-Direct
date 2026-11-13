@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
@@ -11,6 +12,24 @@ Panel {
     property var anchorItem: null
     property var hostWidget: null
     property var summaryData: ({ text: "VFEX --", total_value: 0, total_pnl: 0, total_pnl_pct: 0, items: [], watchlist: [] })
+    property string manualMode: "price"
+    property string statusMessage: ""
+    property bool statusError: false
+
+    Process {
+        id: manualProc
+        onExited: function(exitCode) {
+            if (exitCode === 0) {
+                root.statusError = false
+                root.statusMessage = "Saved"
+                if (root.hostWidget && typeof root.hostWidget.refresh === "function")
+                    root.hostWidget.refresh()
+            } else {
+                root.statusError = true
+                root.statusMessage = "Failed (code " + exitCode + ")"
+            }
+        }
+    }
 
     function open() {
         root.controller.show()
@@ -173,6 +192,211 @@ Panel {
                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                             font.pixelSize: Style.font.body
                         }
+                    }
+                }
+
+                Rectangle {
+                    width: parent.width
+                    height: 1
+                    color: "#45475a"
+                }
+
+                Column {
+                    width: parent.width
+                    spacing: Style.space(6)
+
+                    Row {
+                        width: parent.width
+                        spacing: Style.space(8)
+
+                        Text {
+                            text: "Manual Entry"
+                            color: "#cdd6f4"
+                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                            font.pixelSize: Style.font.body
+                            font.bold: true
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+
+                        Row {
+                            spacing: Style.space(4)
+                            Repeater {
+                                model: [
+                                    { key: "price", label: "Price" },
+                                    { key: "buy", label: "Buy" },
+                                    { key: "sell", label: "Sell" }
+                                ]
+                                delegate: Rectangle {
+                                    width: modeLabel.implicitWidth + Style.space(10)
+                                    height: modeLabel.implicitHeight + Style.space(4)
+                                    radius: 4
+                                    color: root.manualMode === modelData.key ? "#89b4fa" : "#313244"
+                                    Text {
+                                        id: modeLabel
+                                        anchors.centerIn: parent
+                                        text: modelData.label
+                                        color: root.manualMode === modelData.key ? "#1e1e2e" : "#cdd6f4"
+                                        font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                        font.pixelSize: Style.font.small || Style.font.body
+                                        font.bold: root.manualMode === modelData.key
+                                    }
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            root.manualMode = modelData.key
+                                            root.statusMessage = ""
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Row {
+                        width: parent.width
+                        spacing: Style.space(6)
+
+                        Rectangle {
+                            width: root.manualMode === "price" ? parent.width * 0.36 : parent.width * 0.25
+                            height: Style.space(26)
+                            radius: 4
+                            color: "#313244"
+                            border.color: symbolInput.activeFocus ? "#89b4fa" : "#45475a"
+                            border.width: 1
+
+                            TextInput {
+                                id: symbolInput
+                                anchors.fill: parent
+                                anchors.margins: Style.space(5)
+                                color: "#cdd6f4"
+                                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                font.pixelSize: Style.font.body
+                                verticalAlignment: TextInput.AlignVCenter
+                                clip: true
+                                Text {
+                                    anchors.fill: parent
+                                    verticalAlignment: Text.AlignVCenter
+                                    text: "Symbol"
+                                    color: "#6c7086"
+                                    font: symbolInput.font
+                                    visible: !symbolInput.text && !symbolInput.activeFocus
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            visible: root.manualMode !== "price"
+                            width: parent.width * 0.22
+                            height: Style.space(26)
+                            radius: 4
+                            color: "#313244"
+                            border.color: sharesInput.activeFocus ? "#89b4fa" : "#45475a"
+                            border.width: 1
+
+                            TextInput {
+                                id: sharesInput
+                                anchors.fill: parent
+                                anchors.margins: Style.space(5)
+                                color: "#cdd6f4"
+                                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                font.pixelSize: Style.font.body
+                                verticalAlignment: TextInput.AlignVCenter
+                                clip: true
+                                Text {
+                                    anchors.fill: parent
+                                    verticalAlignment: Text.AlignVCenter
+                                    text: "Shares"
+                                    color: "#6c7086"
+                                    font: sharesInput.font
+                                    visible: !sharesInput.text && !sharesInput.activeFocus
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            width: root.manualMode === "price" ? parent.width * 0.38 : parent.width * 0.27
+                            height: Style.space(26)
+                            radius: 4
+                            color: "#313244"
+                            border.color: priceInput.activeFocus ? "#89b4fa" : "#45475a"
+                            border.width: 1
+
+                            TextInput {
+                                id: priceInput
+                                anchors.fill: parent
+                                anchors.margins: Style.space(5)
+                                color: "#cdd6f4"
+                                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                font.pixelSize: Style.font.body
+                                verticalAlignment: TextInput.AlignVCenter
+                                clip: true
+                                Text {
+                                    anchors.fill: parent
+                                    verticalAlignment: Text.AlignVCenter
+                                    text: "Price $"
+                                    color: "#6c7086"
+                                    font: priceInput.font
+                                    visible: !priceInput.text && !priceInput.activeFocus
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            width: parent.width * 0.20
+                            height: Style.space(26)
+                            radius: 4
+                            color: manualProc.running ? "#45475a" : "#a6e3a1"
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: manualProc.running ? "..." : "Save"
+                                color: "#1e1e2e"
+                                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                font.pixelSize: Style.font.body
+                                font.bold: true
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                enabled: !manualProc.running
+                                onClicked: {
+                                    var sym = symbolInput.text.trim().toUpperCase()
+                                    var prc = priceInput.text.trim()
+                                    var sh = sharesInput.text.trim()
+                                    if (!sym || !prc) {
+                                        root.statusError = true
+                                        root.statusMessage = "Enter symbol and price"
+                                        return
+                                    }
+                                    var script = Qt.resolvedUrl("vfex.py").toString().replace("file://", "")
+                                    if (root.manualMode === "price") {
+                                        manualProc.command = ["python3", script, "price", sym, prc]
+                                    } else {
+                                        if (!sh) {
+                                            root.statusError = true
+                                            root.statusMessage = "Enter shares"
+                                            return
+                                        }
+                                        manualProc.command = ["python3", script, root.manualMode, sym, sh, prc]
+                                    }
+                                    root.statusMessage = ""
+                                    manualProc.running = true
+                                    symbolInput.text = ""
+                                    sharesInput.text = ""
+                                    priceInput.text = ""
+                                }
+                            }
+                        }
+                    }
+
+                    Text {
+                        visible: root.statusMessage.length > 0
+                        text: root.statusMessage
+                        color: root.statusError ? "#f38ba8" : "#a6e3a1"
+                        font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                        font.pixelSize: Style.font.small || Style.font.body
                     }
                 }
             }
