@@ -26,6 +26,7 @@ KNOWN_VFEX_SYMBOLS: dict[str, str] = {
     "ECO": "Econet Wireless Zimbabwe",
     "EDGR": "Edgars Stores Limited",
     "FCA": "First Capital Bank Limited",
+    "INFR": "Econet Infrastructure Company Limited (InfraCo)",
     "INSC": "Innscor Africa Limited",
     "NTFD": "National Foods Holdings Limited",
     "PHL": "Padenga Holdings Limited",
