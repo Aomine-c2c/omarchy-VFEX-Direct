@@ -100,10 +100,10 @@ Panel {
                 Repeater {
                     model: root.summaryData.items || []
                     delegate: Row {
-                        width: content.width
+                        width: contentColumn.width
                         spacing: Style.space(6)
                         Text {
-                            width: content.width * 0.22
+                            width: contentColumn.width * 0.22
                             text: modelData.symbol
                             color: "#cdd6f4"
                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
@@ -111,21 +111,21 @@ Panel {
                             font.bold: true
                         }
                         Text {
-                            width: content.width * 0.23
+                            width: contentColumn.width * 0.23
                             text: Number(modelData.shares) + " sh"
                             color: "#cdd6f4"
                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                             font.pixelSize: Style.font.body
                         }
                         Text {
-                            width: content.width * 0.25
+                            width: contentColumn.width * 0.25
                             text: "$" + Number(modelData.price).toFixed(4)
                             color: "#cdd6f4"
                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                             font.pixelSize: Style.font.body
                         }
                         Text {
-                            width: content.width * 0.30
+                            width: contentColumn.width * 0.30
                             horizontalAlignment: Text.AlignRight
                             text: (modelData.pnl >= 0 ? "+" : "") + "$" + Number(modelData.pnl).toFixed(2)
                             color: modelData.pnl >= 0 ? "#a6e3a1" : "#f38ba8"
@@ -149,16 +149,16 @@ Panel {
                 Repeater {
                     model: root.summaryData.watchlist || []
                     delegate: Row {
-                        width: content.width
+                        width: contentColumn.width
                         Text {
-                            width: content.width * 0.35
+                            width: contentColumn.width * 0.35
                             text: modelData.symbol
                             color: "#cdd6f4"
                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                             font.pixelSize: Style.font.body
                         }
                         Text {
-                            width: content.width * 0.25
+                            width: contentColumn.width * 0.25
                             text: modelData.buy ? "BUY" : ""
                             color: "#a6e3a1"
                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
@@ -166,7 +166,7 @@ Panel {
                             font.bold: true
                         }
                         Text {
-                            width: content.width * 0.40
+                            width: contentColumn.width * 0.40
                             horizontalAlignment: Text.AlignRight
                             text: modelData.price !== null && modelData.price !== undefined ? ("$" + Number(modelData.price).toFixed(4)) : "N/A"
                             color: "#cdd6f4"
