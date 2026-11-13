@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.aomine-c2c.vfex-direct",
+  "name": "VFEX Direct",
+  "version": "1.0.0",
+  "author": "Aomine-c2c",
+  "license": "MIT",
+  "description": "Victoria Falls Stock Exchange (VFEX) portfolio, watchlist, and price alerts for the Omarchy bar.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "VFEX Direct",
+    "category": "Finance",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
