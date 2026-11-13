@@ -233,20 +233,40 @@ def send_notification(title: str, body: str) -> None:
         pass
 
 
-def fetch_vfex_prices(store: VFEXStore, url: str = "https://www.vfex.exchange", force: bool = False) -> dict[str, Any]:
+def fetch_vfex_prices(
+    store: VFEXStore,
+    url: str = "https://d3u8q0mxu6epjj.cloudfront.net/api/v1/voms/price-sheets/active",
+    force: bool = False,
+) -> dict[str, Any]:
     """Fetch VFEX prices once per day (or when forced), preserving cached prices on fallback."""
     today = datetime.now(timezone.utc).date().isoformat()
     if not force and store.state.get("last_fetch_date") == today:
         return {"ok": True, "cached": True, "message": f"Already fetched today ({today}); using cached prices."}
 
-    req = urllib.request.Request(url, headers={"User-Agent": "omarchy-VFEX-Direct/0.1"})
+    req = urllib.request.Request(url, headers={"User-Agent": "omarchy-VFEX-Direct/0.1", "Accept": "application/json"})
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             status = resp.status
+            payload = json.loads(resp.read().decode("utf-8"))
+        data = payload.get("data") or {}
+        updated = 0
+        if isinstance(data, dict):
+            for group_items in data.values():
+                if not isinstance(group_items, list):
+                    continue
+                for item in group_items:
+                    raw_sym = str(item.get("symbol") or "").strip().upper()
+                    sym = raw_sym[:-3] if raw_sym.endswith(".VX") else raw_sym
+                    raw_price = item.get("closingPrice")
+                    if raw_price is None:
+                        raw_price = item.get("openingPrice")
+                    if sym and raw_price is not None:
+                        store.set_price(sym, float(raw_price), source="vfex-direct")
+                        updated += 1
         store.state["last_fetch_date"] = today
         store.save()
-        return {"ok": True, "cached": False, "status": status, "message": f"VFEX checked ({today}). Use `vfex price <SYM> <USD>` to update quotes if live feed requires VFEX Direct login."}
-    except (urllib.error.URLError, TimeoutError) as exc:
+        return {"ok": True, "cached": False, "status": status, "updated": updated, "message": f"VFEX updated {updated} prices ({today})."}
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
         return {"ok": False, "cached": True, "status": None, "message": f"Could not reach VFEX ({exc}). Using cached prices."}
 
 
