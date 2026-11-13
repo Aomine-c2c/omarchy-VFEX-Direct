@@ -23,6 +23,7 @@ KNOWN_VFEX_SYMBOLS: dict[str, str] = {
     "AXIA": "Axia Corporation Limited",
     "BIND": "Bindura Nickel Corporation",
     "CALD": "Caledonia Mining Corporation",
+    "ECO": "Econet Wireless Zimbabwe",
     "EDGR": "Edgars Stores Limited",
     "FCA": "First Capital Bank Limited",
     "INSC": "Innscor Africa Limited",
