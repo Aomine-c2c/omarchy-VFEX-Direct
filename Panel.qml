@@ -120,44 +120,58 @@ Panel {
 
                 Repeater {
                     model: root.summaryData.items || []
-                    delegate: Row {
+                    delegate: Column {
                         width: contentColumn.width
-                        spacing: Style.space(6)
-                        Text {
-                            width: contentColumn.width * 0.22
-                            text: modelData.symbol
-                            color: "#cdd6f4"
-                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                            font.pixelSize: Style.font.body
-                            font.bold: true
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: symbolInput.text = modelData.symbol
+                        spacing: Style.space(2)
+                        Row {
+                            width: parent.width
+                            spacing: Style.space(6)
+                            Text {
+                                width: contentColumn.width * 0.22
+                                text: modelData.symbol
+                                color: "#cdd6f4"
+                                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                font.pixelSize: Style.font.body
+                                font.bold: true
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: symbolInput.text = modelData.symbol
+                                }
+                            }
+                            Text {
+                                width: contentColumn.width * 0.23
+                                text: Number(modelData.shares) + " sh"
+                                color: "#cdd6f4"
+                                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                font.pixelSize: Style.font.body
+                            }
+                            Text {
+                                width: contentColumn.width * 0.25
+                                text: "$" + Number(modelData.price).toFixed(4)
+                                color: "#cdd6f4"
+                                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                font.pixelSize: Style.font.body
+                            }
+                            Text {
+                                width: contentColumn.width * 0.30
+                                horizontalAlignment: Text.AlignRight
+                                text: (modelData.pnl >= 0 ? "+" : "") + "$" + Number(modelData.pnl).toFixed(2)
+                                color: modelData.pnl >= 0 ? "#a6e3a1" : "#f38ba8"
+                                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                font.pixelSize: Style.font.body
+                                font.bold: true
                             }
                         }
-                        Text {
-                            width: contentColumn.width * 0.23
-                            text: Number(modelData.shares) + " sh"
-                            color: "#cdd6f4"
-                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                            font.pixelSize: Style.font.body
-                        }
-                        Text {
-                            width: contentColumn.width * 0.25
-                            text: "$" + Number(modelData.price).toFixed(4)
-                            color: "#cdd6f4"
-                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                            font.pixelSize: Style.font.body
-                        }
-                        Text {
-                            width: contentColumn.width * 0.30
-                            horizontalAlignment: Text.AlignRight
-                            text: (modelData.pnl >= 0 ? "+" : "") + "$" + Number(modelData.pnl).toFixed(2)
-                            color: modelData.pnl >= 0 ? "#a6e3a1" : "#f38ba8"
-                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                            font.pixelSize: Style.font.body
-                            font.bold: true
+                        Repeater {
+                            model: modelData.lots || []
+                            delegate: Text {
+                                width: contentColumn.width
+                                text: "  " + modelData.date + ": " + Number(modelData.shares) + " sh @ $" + Number(modelData.price).toFixed(4)
+                                color: "#a6adc8"
+                                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                font.pixelSize: Style.font.small || Style.font.body
+                            }
                         }
                     }
                 }
@@ -203,7 +217,7 @@ Panel {
                     delegate: Row {
                         width: contentColumn.width
                         Text {
-                            width: contentColumn.width * 0.32
+                            width: contentColumn.width * 0.24
                             text: modelData.symbol
                             color: "#cdd6f4"
                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
@@ -214,8 +228,35 @@ Panel {
                                 onClicked: symbolInput.text = modelData.symbol
                             }
                         }
-                        Text {
+                        Canvas {
+                            id: sparkline
                             width: contentColumn.width * 0.22
+                            height: Style.space(18)
+                            anchors.verticalCenter: parent.verticalCenter
+                            property var pts: modelData.history || []
+                            onPtsChanged: requestPaint()
+                            onPaint: {
+                                var ctx = getContext("2d")
+                                ctx.clearRect(0, 0, width, height)
+                                var pts = sparkline.pts
+                                if (!pts || pts.length < 2) return
+                                var minV = Math.min.apply(null, pts)
+                                var maxV = Math.max.apply(null, pts)
+                                var span = maxV - minV || 1
+                                ctx.strokeStyle = pts[pts.length - 1] >= pts[0] ? "#a6e3a1" : "#f38ba8"
+                                ctx.lineWidth = 1.5
+                                ctx.beginPath()
+                                for (var i = 0; i < pts.length; i++) {
+                                    var x = (i / (pts.length - 1)) * (width - 2) + 1
+                                    var y = height - 2 - ((pts[i] - minV) / span) * (height - 4)
+                                    if (i === 0) ctx.moveTo(x, y)
+                                    else ctx.lineTo(x, y)
+                                }
+                                ctx.stroke()
+                            }
+                        }
+                        Text {
+                            width: contentColumn.width * 0.14
                             text: modelData.buy ? "BUY" : ""
                             color: "#a6e3a1"
                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
@@ -223,7 +264,7 @@ Panel {
                             font.bold: true
                         }
                         Text {
-                            width: contentColumn.width * 0.36
+                            width: contentColumn.width * 0.30
                             horizontalAlignment: Text.AlignRight
                             text: modelData.price !== null && modelData.price !== undefined ? ("$" + Number(modelData.price).toFixed(4)) : "N/A"
                             color: "#cdd6f4"
@@ -458,6 +499,13 @@ Panel {
                                     }
                                     if (root.manualMode === "watch") {
                                         manualProc.command = ["python3", script, "watch", "add", sym]
+                                    } else if (root.manualMode === "alert") {
+                                        if (!prc) {
+                                            root.statusError = true
+                                            root.statusMessage = "Enter target price"
+                                            return
+                                        }
+                                        manualProc.command = ["python3", script, "alert", "add", sym, root.alertDirection, prc]
                                     } else if (root.manualMode === "price") {
                                         if (!prc) {
                                             root.statusError = true
@@ -478,6 +526,47 @@ Panel {
                                     symbolInput.text = ""
                                     sharesInput.text = ""
                                     priceInput.text = ""
+                                }
+                            }
+                        }
+                    }
+
+                    Flow {
+                        width: parent.width
+                        spacing: Style.space(4)
+                        visible: symbolInput.activeFocus || symbolInput.text.length > 0
+
+                        Repeater {
+                            model: {
+                                var q = symbolInput.text.trim().toUpperCase()
+                                var out = []
+                                for (var i = 0; i < root.knownSymbols.length; i++) {
+                                    if (!q || root.knownSymbols[i].indexOf(q) === 0) {
+                                        out.push(root.knownSymbols[i])
+                                        if (out.length >= 6) break
+                                    }
+                                }
+                                return out
+                            }
+                            delegate: Rectangle {
+                                width: sugText.implicitWidth + Style.space(10)
+                                height: sugText.implicitHeight + Style.space(4)
+                                radius: 4
+                                color: "#313244"
+                                border.color: "#45475a"
+                                border.width: 1
+                                Text {
+                                    id: sugText
+                                    anchors.centerIn: parent
+                                    text: modelData
+                                    color: "#89b4fa"
+                                    font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                    font.pixelSize: Style.font.small || Style.font.body
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: symbolInput.text = modelData
                                 }
                             }
                         }

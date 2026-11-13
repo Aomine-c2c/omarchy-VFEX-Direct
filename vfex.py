@@ -85,18 +85,22 @@ class VFEXStore:
         entry = self.state["prices"].get(symbol.upper())
         return float(entry["price"]) if entry else None
 
-    def buy(self, symbol: str, shares: float, price: float) -> None:
+    def buy(self, symbol: str, shares: float, price: float, date: str | None = None) -> None:
         if shares <= 0 or price < 0:
             raise ValueError("Shares must be positive and price non-negative.")
         sym = symbol.upper()
-        holding = self.state["portfolio"].get(sym, {"shares": 0.0, "avg_cost": 0.0})
+        holding = self.state["portfolio"].get(sym, {"shares": 0.0, "avg_cost": 0.0, "lots": []})
         old_shares = float(holding["shares"])
         old_cost = float(holding["avg_cost"])
         new_shares = old_shares + shares
         new_avg = ((old_shares * old_cost) + (shares * price)) / new_shares
+        lots = list(holding.get("lots", []))
+        lot_date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        lots.append({"date": lot_date, "shares": round(shares, 6), "price": round(price, 4)})
         self.state["portfolio"][sym] = {
             "shares": round(new_shares, 6),
             "avg_cost": round(new_avg, 4),
+            "lots": lots,
         }
         if sym not in self.state["prices"]:
             self.set_price(sym, price, source="trade")
@@ -141,6 +145,7 @@ class VFEXStore:
                 "value": value,
                 "pnl": pnl,
                 "pnl_pct": pnl_pct,
+                "lots": holding.get("lots", []),
             })
         total_pnl = total_value - total_cost
         total_pnl_pct = (total_pnl / total_cost * 100.0) if total_cost > 0 else 0.0
@@ -317,8 +322,10 @@ def format_panel_json(store: VFEXStore) -> dict[str, Any]:
     summary = store.portfolio_summary()
     recs = {r["symbol"]: r for r in store.buy_recommendations()}
     watchlist_items = []
+    history_map = store.state.get("history", {})
     for sym in store.state.get("watchlist", []):
-        watchlist_items.append({"symbol": sym, "price": store.get_price(sym), "buy": sym in recs})
+        hist = [h["price"] for h in history_map.get(sym, []) if "price" in h]
+        watchlist_items.append({"symbol": sym, "price": store.get_price(sym), "buy": sym in recs, "history": hist})
     return {
         **wb,
         "total_value": round(summary["total_value"], 2),
