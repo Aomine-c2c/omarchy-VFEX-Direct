@@ -39,7 +39,7 @@ BarWidget {
         panelLoader.item.bar = root.bar
         panelLoader.item.anchorItem = button
         panelLoader.item.hostWidget = root
-        panelLoader.item.summaryText = root.tooltipBody
+        panelLoader.item.summaryData = root.summaryData
     }
 
     implicitWidth: button.implicitWidth
@@ -48,7 +48,7 @@ BarWidget {
 
     Process {
         id: vfexProc
-        command: ["python3", Qt.resolvedUrl("vfex.py").toString().replace("file://", ""), "waybar"]
+        command: ["python3", Qt.resolvedUrl("vfex.py").toString().replace("file://", ""), "panel-json"]
         running: true
         stdout: SplitParser {
             onRead: function(data) {
@@ -57,7 +57,7 @@ BarWidget {
                     root.summaryData = parsed
                     root.barText = parsed.text || "VFEX --"
                     root.tooltipBody = parsed.tooltip || "VFEX Direct"
-                    if (panelLoader.item) panelLoader.item.summaryText = root.tooltipBody
+                    if (panelLoader.item) panelLoader.item.summaryData = parsed
                 } catch (e) {
                 }
             }

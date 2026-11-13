@@ -10,7 +10,7 @@ Panel {
 
     property var anchorItem: null
     property var hostWidget: null
-    property string summaryText: "Loading VFEX portfolio..."
+    property var summaryData: ({ text: "VFEX --", total_value: 0, total_pnl: 0, total_pnl_pct: 0, items: [], watchlist: [] })
 
     function open() {
         root.controller.show()
@@ -33,7 +33,7 @@ Panel {
         bar: root.bar
         open: root.opened
         focusTarget: keyCatcher
-        contentWidth: panel.fittedContentWidth(Style.space(320))
+        contentWidth: panel.fittedContentWidth(Style.space(360))
         contentHeight: panel.fittedContentHeight(content.implicitHeight)
 
         PanelKeyCatcher {
@@ -47,24 +47,124 @@ Panel {
             Column {
                 id: content
                 width: parent.width
-                spacing: Style.space(8)
+                spacing: Style.space(10)
 
-                Text {
+                Row {
                     width: parent.width
-                    text: "VFEX Direct"
-                    color: root.barForeground
-                    font.family: root.bar ? root.bar.fontFamily : Style.font.family
-                    font.pixelSize: Style.font.subtitle
-                    font.bold: true
+                    spacing: Style.space(8)
+
+                    Text {
+                        text: "VFEX Direct (USD)"
+                        color: root.barForeground
+                        font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                        font.pixelSize: Style.font.subtitle
+                        font.bold: true
+                        width: parent.width - refreshBtn.width - Style.space(8)
+                    }
+
+                    Text {
+                        id: refreshBtn
+                        text: "↻ Refresh"
+                        color: "#89b4fa"
+                        font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                        font.pixelSize: Style.font.body
+                        font.bold: true
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                if (root.hostWidget && typeof root.hostWidget.refresh === "function")
+                                    root.hostWidget.refresh()
+                            }
+                        }
+                    }
                 }
 
                 Text {
                     width: parent.width
-                    text: root.summaryText
+                    visible: (root.summaryData.items || []).length > 0
+                    text: {
+                        var val = Number(root.summaryData.total_value || 0).toFixed(2)
+                        var pnl = Number(root.summaryData.total_pnl || 0)
+                        var pct = Number(root.summaryData.total_pnl_pct || 0).toFixed(1)
+                        var sign = pnl >= 0 ? "+" : ""
+                        return "Portfolio: $" + val + " (" + sign + "$" + pnl.toFixed(2) + " / " + sign + pct + "%)"
+                    }
+                    color: Number(root.summaryData.total_pnl || 0) >= 0 ? "#a6e3a1" : "#f38ba8"
+                    font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                    font.pixelSize: Style.font.body
+                    font.bold: true
+                }
+
+                Repeater {
+                    model: root.summaryData.items || []
+                    delegate: Row {
+                        width: content.width
+                        spacing: Style.space(6)
+                        Text {
+                            width: content.width * 0.22
+                            text: modelData.symbol
+                            color: root.barForeground
+                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                            font.pixelSize: Style.font.body
+                            font.bold: true
+                        }
+                        Text {
+                            width: content.width * 0.23
+                            text: Number(modelData.shares) + " sh"
+                            color: root.barForeground
+                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                            font.pixelSize: Style.font.body
+                        }
+                        Text {
+                            width: content.width * 0.25
+                            text: "$" + Number(modelData.price).toFixed(4)
+                            color: root.barForeground
+                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                            font.pixelSize: Style.font.body
+                        }
+                        Text {
+                            width: content.width * 0.30
+                            horizontalAlignment: Text.AlignRight
+                            text: (modelData.pnl >= 0 ? "+" : "") + "$" + Number(modelData.pnl).toFixed(2)
+                            color: modelData.pnl >= 0 ? "#a6e3a1" : "#f38ba8"
+                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                            font.pixelSize: Style.font.body
+                            font.bold: true
+                        }
+                    }
+                }
+
+                Text {
+                    width: parent.width
+                    visible: (root.summaryData.watchlist || []).length > 0
+                    text: "Watchlist"
                     color: root.barForeground
                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                     font.pixelSize: Style.font.body
-                    wrapMode: Text.WordWrap
+                    font.bold: true
+                }
+
+                Repeater {
+                    model: root.summaryData.watchlist || []
+                    delegate: Row {
+                        width: content.width
+                        Text {
+                            width: content.width * 0.5
+                            text: modelData.symbol
+                            color: root.barForeground
+                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                            font.pixelSize: Style.font.body
+                        }
+                        Text {
+                            width: content.width * 0.5
+                            horizontalAlignment: Text.AlignRight
+                            text: modelData.price !== null && modelData.price !== undefined ? ("$" + Number(modelData.price).toFixed(4)) : "N/A"
+                            color: root.barForeground
+                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                            font.pixelSize: Style.font.body
+                        }
+                    }
                 }
             }
         }

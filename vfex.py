@@ -234,6 +234,24 @@ def format_waybar(store: VFEXStore) -> dict[str, str]:
     return {"text": text, "tooltip": "\n".join(tooltip_lines), "class": css_class}
 
 
+def format_panel_json(store: VFEXStore) -> dict[str, Any]:
+    """Build structured JSON for BarWidget.qml and Panel.qml."""
+    wb = format_waybar(store)
+    summary = store.portfolio_summary()
+    watchlist_items = []
+    for sym in store.state.get("watchlist", []):
+        watchlist_items.append({"symbol": sym, "price": store.get_price(sym)})
+    return {
+        **wb,
+        "total_value": round(summary["total_value"], 2),
+        "total_cost": round(summary["total_cost"], 2),
+        "total_pnl": round(summary["total_pnl"], 2),
+        "total_pnl_pct": round(summary["total_pnl_pct"], 2),
+        "items": summary["items"],
+        "watchlist": watchlist_items,
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="vfex", description="Victoria Falls Stock Exchange (VFEX) CLI & Waybar tracker")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -266,6 +284,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_alert.add_argument("target", nargs="?", type=float)
 
     sub.add_parser("waybar", help="Output Waybar JSON")
+    sub.add_parser("panel-json", help="Output structured JSON for Omarchy BarWidget/Panel")
     sub.add_parser("symbols", help="List known VFEX symbols")
     return parser
 
@@ -331,6 +350,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Triggered {len(hits)} alert(s).")
     elif args.command == "waybar":
         print(json.dumps(format_waybar(store)))
+    elif args.command == "panel-json":
+        print(json.dumps(format_panel_json(store)))
     elif args.command == "symbols":
         for sym, name in sorted(KNOWN_VFEX_SYMBOLS.items()):
             print(f"{sym:<6} {name}")
