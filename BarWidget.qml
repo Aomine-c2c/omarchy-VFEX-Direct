@@ -23,6 +23,10 @@ BarWidget {
     readonly property string cfgSignalMarket: String(root.setting("signalMarket", "VFEX + ZSE")) === "VFEX Only" ? "vfex" : "all"
     readonly property int cfgDiscountPct: Math.max(1, Number(root.setting("discountPct", 3)))
     readonly property bool cfgNotifySignals: root.setting("notifySignals", true) === true
+    readonly property real cfgVfexFeePct: Math.max(0, Number(root.setting("vfexFeePct", "0.0")) || 0)
+    readonly property real cfgZseFeePct: Math.max(0, Number(root.setting("zseFeePct", "0.0")) || 0)
+    readonly property int cfgMaxStockPct: Math.max(5, Number(root.setting("maxStockPct", 25)))
+    readonly property int cfgProfitTakePct: Math.max(5, Number(root.setting("profitTakePct", 15)))
 
     function panelJsonCmd() {
         var cmd = [
@@ -30,7 +34,11 @@ BarWidget {
             Qt.resolvedUrl("vfex.py").toString().replace("file://", ""),
             "panel-json",
             "--market", root.cfgSignalMarket,
-            "--discount", String(root.cfgDiscountPct)
+            "--discount", String(root.cfgDiscountPct),
+            "--vfex-fee", String(root.cfgVfexFeePct),
+            "--zse-fee", String(root.cfgZseFeePct),
+            "--max-stock-pct", String(root.cfgMaxStockPct),
+            "--profit-take-pct", String(root.cfgProfitTakePct)
         ]
         if (root.cfgNotifySignals) cmd.push("--notify-signals")
         return cmd

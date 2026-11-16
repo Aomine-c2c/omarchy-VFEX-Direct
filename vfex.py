@@ -1055,9 +1055,10 @@ class VFEXStore:
         discount_pct: float = 3.0,
         include_zse: bool = True,
         profit_take_pct: float = 15.0,
+        max_stock_pct: float = 25.0,
         limit: int = 8,
     ) -> list[dict[str, Any]]:
-        """Score live VFEX/ZSE counters on order-book pressure, pullbacks, targets, and profit-take levels."""
+        """Score live VFEX/ZSE counters on order-book pressure, RSI/Z-score, pullbacks, targets, and profit-take levels."""
         summary = self.portfolio_summary()
         holdings = {item["symbol"]: item for item in summary["items"]}
         targets = self.get_targets()
@@ -1068,6 +1069,8 @@ class VFEXStore:
             if a.get("direction") == "below"
         }
         watchlist_set = set(self.state.get("watchlist", []))
+        usd_equity = float(summary["total_value"]) + float(summary.get("wallet_cash_usd") or 0.0)
+        zwg_equity = float(summary["zwg_value"]) + float(summary.get("wallet_cash_zwg") or 0.0)
         signals: list[dict[str, Any]] = []
 
         for sym, entry in sorted(self.state.get("prices", {}).items()):
@@ -1079,14 +1082,14 @@ class VFEXStore:
                 continue
 
             hist = history_map.get(sym, [])
-            avg30 = sum(float(h.get("close", h.get("price", cur))) for h in hist) / len(hist) if hist else cur
-            drop30 = ((avg30 - cur) / avg30 * 100.0) if avg30 > 0 else 0.0
+            tech = compute_symbol_technicals(hist, cur)
+            drop30 = tech["drop30"]
             chg_pct = entry.get("change_pct")
             bid = float(entry.get("best_bid") or 0.0)
             ask = float(entry.get("best_ask") or 0.0)
             bid_vol = int(entry.get("bid_volume") or 0)
             ask_vol = int(entry.get("ask_volume") or 0)
-            spread_pct = ((ask - bid) / cur * 100.0) if (bid > 0 and ask > bid) else None
+            lim = compute_smart_limit(cur, bid, ask, bid_vol, ask_vol, "BUY")
 
             buy_score = 0
             buy_reasons: list[str] = []
@@ -1097,11 +1100,17 @@ class VFEXStore:
             if chg_pct is not None and float(chg_pct) <= -dip_floor:
                 buy_score += min(30, int(round(abs(float(chg_pct)) * 4.0)))
                 buy_reasons.append(f"{float(chg_pct):.1f}% today")
+            if tech["rsi14"] is not None and tech["rsi14"] <= 35.0:
+                buy_score += 15
+                buy_reasons.append(f"RSI {tech['rsi14']:.0f}")
+            if tech["z_score"] is not None and tech["z_score"] <= -1.5:
+                buy_score += 15
+                buy_reasons.append(f"Z {tech['z_score']:.1f}")
             if bid > 0 and bid_vol >= 50 and (ask_vol == 0 or bid_vol >= 2 * ask_vol):
                 buy_score += 25
-                if spread_pct is not None and spread_pct <= 5.0:
+                if lim["spread_pct"] is not None and lim["spread_pct"] <= 5.0:
                     buy_score += 10
-                buy_reasons.append(f"Bid vol {bid_vol} > Ask {ask_vol}")
+                buy_reasons.append(f"Bid {bid_vol} > Ask {ask_vol}")
             if sym in below_targets and cur <= below_targets[sym]:
                 buy_score += 35
                 buy_reasons.append(f"<= target {format_money(below_targets[sym], cur_code, 4)}")
@@ -1110,17 +1119,29 @@ class VFEXStore:
                 if cur_alloc < float(targets[sym]) - 5.0:
                     buy_score += 20
                     buy_reasons.append(f"Alloc {cur_alloc:.0f}% < {float(targets[sym]):.0f}%")
+            if lim["wide_spread"]:
+                buy_score = max(1, buy_score - 10)
+                buy_reasons.append(f"Wide spread {lim['spread_pct']:.1f}%")
 
             if buy_score > 0:
                 if sym in watchlist_set or sym in holdings:
                     buy_score += 5
+                pool_eq = zwg_equity if cur_code == "ZWG" else usd_equity
+                cap_budget = pool_eq * (max_stock_pct / 100.0)
+                rec_sh = int(cap_budget // lim["optimal_limit"]) if (cap_budget > 0 and lim["optimal_limit"] > 0) else 0
                 signals.append({
                     "symbol": sym,
                     "action": "BUY",
-                    "score": buy_score,
+                    "score": min(100, buy_score),
                     "currency": cur_code,
                     "price": cur,
-                    "limit_price": round(ask if ask > 0 else cur, 4),
+                    "limit_price": lim["optimal_limit"],
+                    "spread_pct": lim["spread_pct"],
+                    "wide_spread": lim["wide_spread"],
+                    "liquidity_score": lim["liquidity_score"],
+                    "recommended_shares": rec_sh,
+                    "rsi14": tech["rsi14"],
+                    "z_score": tech["z_score"],
                     "best_bid": entry.get("best_bid"),
                     "best_ask": entry.get("best_ask"),
                     "bid_volume": entry.get("bid_volume"),
@@ -1135,7 +1156,7 @@ class VFEXStore:
                 sell_score = 0
                 sell_reasons: list[str] = []
                 if float(held.get("pnl_pct") or 0.0) >= profit_take_pct:
-                    sell_score += 30
+                    sell_score += 35
                     sell_reasons.append(f"+{float(held['pnl_pct']):.1f}% gain")
                 if held.get("target_pct") is not None and float(held.get("alloc_pct") or 0.0) > float(held["target_pct"]) + 10.0:
                     sell_score += 20
@@ -1144,13 +1165,20 @@ class VFEXStore:
                     sell_score += 20
                     sell_reasons.append(f"+{float(chg_pct):.1f}% spike / heavy ask")
                 if sell_score > 0:
+                    slim = compute_smart_limit(cur, bid, ask, bid_vol, ask_vol, "SELL")
                     signals.append({
                         "symbol": sym,
                         "action": "SELL",
-                        "score": sell_score,
+                        "score": min(100, sell_score),
                         "currency": cur_code,
                         "price": cur,
-                        "limit_price": round(bid if bid > 0 else cur, 4),
+                        "limit_price": slim["optimal_limit"],
+                        "spread_pct": slim["spread_pct"],
+                        "wide_spread": slim["wide_spread"],
+                        "liquidity_score": slim["liquidity_score"],
+                        "recommended_shares": int(float(held.get("shares") or 0) // 2) or int(float(held.get("shares") or 0)),
+                        "rsi14": tech["rsi14"],
+                        "z_score": tech["z_score"],
                         "best_bid": entry.get("best_bid"),
                         "best_ask": entry.get("best_ask"),
                         "bid_volume": entry.get("bid_volume"),
@@ -1162,6 +1190,216 @@ class VFEXStore:
 
         signals.sort(key=lambda s: (-int(s["score"]), s["symbol"]))
         return signals[:limit]
+
+    def record_signal_history(self, signals: list[dict[str, Any]], min_score: int = 35) -> int:
+        """Auto-log high-conviction signals once per day into rolling 90-day backtest track record."""
+        today_dt = datetime.now(timezone.utc).date()
+        today = today_dt.isoformat()
+        cutoff = (today_dt - timedelta(days=90)).isoformat()
+        hist = [h for h in self.state.get("signal_history", []) if str(h.get("date", "")) >= cutoff]
+        existing = {(h.get("date"), h.get("action"), h.get("symbol")) for h in hist}
+        added = 0
+        for sig in signals:
+            if int(sig.get("score", 0)) < min_score:
+                continue
+            key = (today, sig["action"], sig["symbol"])
+            if key in existing:
+                continue
+            existing.add(key)
+            hist.append({
+                "date": today,
+                "symbol": sig["symbol"],
+                "action": sig["action"],
+                "currency": sig.get("currency", "USD"),
+                "entry_price": round(float(sig["price"]), 4),
+                "score": int(sig["score"]),
+                "headline": sig.get("headline", ""),
+            })
+            added += 1
+        if added or len(hist) != len(self.state.get("signal_history", [])):
+            self.state["signal_history"] = hist[-250:]
+            self.save()
+        return added
+
+    def signal_backtest_summary(self) -> dict[str, Any]:
+        """Evaluate forward win-rate and average return across recorded signals."""
+        entries = self.state.get("signal_history", [])
+        evaluated: list[dict[str, Any]] = []
+        wins = 0
+        returns: list[float] = []
+        for row in entries:
+            sym = str(row.get("symbol", "")).upper()
+            ep = float(row.get("entry_price") or 0.0)
+            if ep <= 0:
+                continue
+            cur = self.get_price(sym) or ep
+            raw_ret = ((cur - ep) / ep) * 100.0
+            adj_ret = -raw_ret if row.get("action") == "SELL" else raw_ret
+            returns.append(adj_ret)
+            if adj_ret > 0:
+                wins += 1
+            evaluated.append({
+                **row,
+                "current_price": round(cur, 4),
+                "return_pct": round(adj_ret, 2),
+            })
+        evaluated.sort(key=lambda r: (r["date"], r["score"]), reverse=True)
+        total = len(evaluated)
+        best = max(evaluated, key=lambda r: r["return_pct"], default=None)
+        worst = min(evaluated, key=lambda r: r["return_pct"], default=None)
+        return {
+            "total_logged": total,
+            "wins": wins,
+            "win_rate_pct": round((wins / total) * 100.0, 1) if total > 0 else 0.0,
+            "avg_return_pct": round(sum(returns) / total, 2) if total > 0 else 0.0,
+            "best": best,
+            "worst": worst,
+            "entries": evaluated[:15],
+        }
+
+    def market_screener(
+        self,
+        discount_pct: float = 3.0,
+        profit_take_pct: float = 15.0,
+        max_stock_pct: float = 25.0,
+    ) -> list[dict[str, Any]]:
+        """Build full screener table across all fetched VFEX & ZSE counters with depth, technicals, & signals."""
+        sig_by_sym: dict[str, dict[str, Any]] = {}
+        for s in self.trade_signals(
+            discount_pct=discount_pct,
+            include_zse=True,
+            profit_take_pct=profit_take_pct,
+            max_stock_pct=max_stock_pct,
+            limit=60,
+        ):
+            if s["symbol"] not in sig_by_sym:
+                sig_by_sym[s["symbol"]] = s
+
+        rows: list[dict[str, Any]] = []
+        history_map = self.state.get("history", {})
+        for sym, entry in sorted(self.state.get("prices", {}).items()):
+            cur = float(entry.get("price") or 0.0)
+            if cur <= 0:
+                continue
+            cur_code = infer_currency(sym, entry)
+            hist = history_map.get(sym, [])
+            tech = compute_symbol_technicals(hist, cur)
+            lim = compute_smart_limit(
+                cur,
+                entry.get("best_bid"),
+                entry.get("best_ask"),
+                entry.get("bid_volume"),
+                entry.get("ask_volume"),
+                "BUY",
+            )
+            sig = sig_by_sym.get(sym)
+            rows.append({
+                "symbol": sym,
+                "company_name": entry.get("company_name") or KNOWN_VFEX_SYMBOLS.get(sym, ""),
+                "currency": cur_code,
+                "price": cur,
+                "change_pct": self.get_daily_change(sym),
+                "best_bid": entry.get("best_bid"),
+                "best_ask": entry.get("best_ask"),
+                "bid_volume": entry.get("bid_volume") or 0,
+                "ask_volume": entry.get("ask_volume") or 0,
+                "spread_pct": lim["spread_pct"],
+                "wide_spread": lim["wide_spread"],
+                "liquidity_score": lim["liquidity_score"],
+                "optimal_limit": lim["optimal_limit"],
+                "rsi14": tech["rsi14"],
+                "z_score": tech["z_score"],
+                "ma20": tech["ma20"],
+                "signal_action": sig["action"] if sig else "",
+                "signal_score": sig["score"] if sig else 0,
+                "reasons": sig["reasons"] if sig else [],
+            })
+        return rows
+
+    def market_breadth(self) -> dict[str, int]:
+        """Count advancing, declining, and unchanged VFEX + ZSE counters."""
+        adv = dec = unch = vfex_n = zse_n = 0
+        for sym, entry in self.state.get("prices", {}).items():
+            if infer_currency(sym, entry) == "ZWG":
+                zse_n += 1
+            else:
+                vfex_n += 1
+            chg = self.get_daily_change(sym)
+            if chg is None or abs(chg) < 1e-6:
+                unch += 1
+            elif chg > 0:
+                adv += 1
+            else:
+                dec += 1
+        return {
+            "advancers": adv,
+            "decliners": dec,
+            "unchanged": unch,
+            "total": adv + dec + unch,
+            "vfex_count": vfex_n,
+            "zse_count": zse_n,
+        }
+
+    def portfolio_equity_curve(self, max_points: int = 30) -> list[dict[str, Any]]:
+        """Reconstruct daily USD portfolio value vs invested cost curve."""
+        trades = [
+            tr for tr in self.state.get("trades", [])
+            if infer_currency(str(tr.get("symbol", "")), self.get_price_entry(str(tr.get("symbol", "")))) == "USD"
+        ]
+        history_map = self.state.get("history", {})
+        all_dates: set[str] = set()
+        for sym in set(self.state.get("portfolio", {}).keys()) | {str(t.get("symbol", "")) for t in trades}:
+            if infer_currency(sym, self.get_price_entry(sym)) == "USD":
+                for h in history_map.get(sym, []):
+                    if h.get("date"):
+                        all_dates.add(str(h["date"]))
+        for t in trades:
+            if t.get("date"):
+                all_dates.add(str(t["date"]))
+        today_str = datetime.now(timezone.utc).date().isoformat()
+        if self.state.get("portfolio"):
+            all_dates.add(today_str)
+        if not all_dates:
+            return []
+
+        dates = sorted(all_dates)[-max_points:]
+        price_lookup: dict[str, list[tuple[str, float]]] = {}
+        for sym, rows in history_map.items():
+            price_lookup[sym] = sorted(
+                ((str(r["date"]), float(r.get("close", r.get("price", 0.0)))) for r in rows if r.get("date")),
+                key=lambda x: x[0],
+            )
+
+        curve: list[dict[str, Any]] = []
+        for dt in dates:
+            shares_map: dict[str, float] = {}
+            avg_map: dict[str, float] = {}
+            for tr in trades:
+                if str(tr.get("date", "")) > dt:
+                    continue
+                s = str(tr["symbol"]).upper()
+                sh = float(tr["shares"])
+                pr = float(tr["price"])
+                if tr["action"] == "BUY":
+                    old_sh = shares_map.get(s, 0.0)
+                    new_sh = old_sh + sh
+                    avg_map[s] = ((old_sh * avg_map.get(s, 0.0)) + (sh * pr)) / new_sh if new_sh > 0 else 0.0
+                    shares_map[s] = new_sh
+                elif tr["action"] == "SELL":
+                    rem = max(0.0, shares_map.get(s, 0.0) - sh)
+                    if rem <= 1e-9:
+                        shares_map.pop(s, None)
+                    else:
+                        shares_map[s] = rem
+            cost_sum = sum(sh * avg_map.get(s, 0.0) for s, sh in shares_map.items())
+            val_sum = 0.0
+            for s, sh in shares_map.items():
+                pts = [p for d, p in price_lookup.get(s, []) if d <= dt]
+                px = pts[-1] if pts else (self.get_price(s) or avg_map.get(s, 0.0))
+                val_sum += sh * px
+            if cost_sum > 0 or val_sum > 0:
+                curve.append({"date": dt, "cost": round(cost_sum, 2), "value": round(val_sum, 2)})
+        return curve
 
     def notify_trade_signals(self, signals: list[dict[str, Any]], min_score: int = 30) -> list[dict[str, Any]]:
         """Send one desktop notification per day for each high-conviction signal."""
@@ -1958,21 +2196,44 @@ def format_panel_json(
     include_zse: bool = True,
     discount_pct: float = 3.0,
     notify_signals: bool = False,
+    vfex_fee_pct: float = 0.0,
+    zse_fee_pct: float = 0.0,
+    max_stock_pct: float = 25.0,
+    profit_take_pct: float = 15.0,
 ) -> dict[str, Any]:
     """Build structured JSON for BarWidget.qml and Panel.qml."""
     fetch_res = fetch_vfex_prices(store, force=False)
     store.check_alerts(notify=True)
+    store.check_trailing_stops(notify=True)
     wb = format_waybar(store)
-    summary = store.portfolio_summary()
+    summary = store.portfolio_summary(vfex_fee_pct=vfex_fee_pct, zse_fee_pct=zse_fee_pct)
     recs = {r["symbol"]: r for r in store.buy_recommendations(discount_pct=discount_pct)}
-    signals = store.trade_signals(discount_pct=discount_pct, include_zse=include_zse)
+    signals = store.trade_signals(
+        discount_pct=discount_pct,
+        include_zse=include_zse,
+        profit_take_pct=profit_take_pct,
+        max_stock_pct=max_stock_pct,
+    )
+    store.record_signal_history(signals, min_score=35)
     if notify_signals and get_market_status() == "Open":
         store.notify_trade_signals(signals)
+
     watchlist_items = []
     history_map = store.state.get("history", {})
     for sym in store.state.get("watchlist", []):
         p_entry = store.get_price_entry(sym)
-        hist = [h.get("close", h.get("price")) for h in history_map.get(sym, []) if ("close" in h or "price" in h)]
+        hist_rows = history_map.get(sym, [])
+        hist = [h.get("close", h.get("price")) for h in hist_rows if ("close" in h or "price" in h)]
+        cur_p = store.get_price(sym) or 0.0
+        tech = compute_symbol_technicals(hist_rows, cur_p) if cur_p > 0 else {"ma20": None, "ma20_series": [], "rsi14": None, "z_score": None}
+        lim = compute_smart_limit(
+            cur_p,
+            p_entry.get("best_bid"),
+            p_entry.get("best_ask"),
+            p_entry.get("bid_volume"),
+            p_entry.get("ask_volume"),
+            "BUY",
+        )
         watchlist_items.append({
             "symbol": sym,
             "currency": infer_currency(sym, p_entry),
@@ -1980,12 +2241,20 @@ def format_panel_json(
             "buy": sym in recs or any(s["symbol"] == sym and s["action"] == "BUY" for s in signals),
             "history": hist,
             "candles": store.get_candles(sym),
+            "ma20": tech["ma20"],
+            "ma20_series": tech["ma20_series"],
+            "rsi14": tech["rsi14"],
+            "z_score": tech["z_score"],
             "change_pct": store.get_daily_change(sym),
             "best_bid": p_entry.get("best_bid"),
             "best_ask": p_entry.get("best_ask"),
             "bid_volume": p_entry.get("bid_volume"),
             "ask_volume": p_entry.get("ask_volume"),
             "spread": p_entry.get("spread"),
+            "spread_pct": lim["spread_pct"],
+            "wide_spread": lim["wide_spread"],
+            "liquidity_score": lim["liquidity_score"],
+            "optimal_limit": lim["optimal_limit"],
             "company_name": p_entry.get("company_name"),
             "source": p_entry.get("source"),
         })
@@ -2010,12 +2279,22 @@ def format_panel_json(
         else:
             active_alerts.append(entry)
 
+    indexed_trades = [
+        {**t, "index": i, "currency": infer_currency(str(t.get("symbol", "")), store.get_price_entry(str(t.get("symbol", ""))))}
+        for i, t in enumerate(store.state.get("trades", []))
+    ]
+    indexed_trades.reverse()
+    recent_divs = list(reversed(store.state.get("dividends", [])))[:30]
+
     return {
         **wb,
         "total_value": round(summary["total_value"], 2),
         "total_cost": round(summary["total_cost"], 2),
         "total_pnl": round(summary["total_pnl"], 2),
         "total_pnl_pct": round(summary["total_pnl_pct"], 2),
+        "net_total_pnl": summary["net_total_pnl"],
+        "net_total_pnl_pct": summary["net_total_pnl_pct"],
+        "portfolio_xirr_pct": summary["portfolio_xirr_pct"],
         "realized_pnl": summary["realized_pnl"],
         "total_dividends": summary["total_dividends"],
         "total_return": summary["total_return"],
@@ -2031,6 +2310,20 @@ def format_panel_json(
         "recommendations": list(recs.values()),
         "signals": signals,
         "top_signal": signals[0] if signals else None,
+        "screener": store.market_screener(discount_pct=discount_pct, profit_take_pct=profit_take_pct, max_stock_pct=max_stock_pct),
+        "breadth": store.market_breadth(),
+        "signal_backtest": store.signal_backtest_summary(),
+        "equity_curve": store.portfolio_equity_curve(),
+        "trailing_stops": list(store.state.get("trailing_stops", {}).values()),
+        "trades": indexed_trades[:40],
+        "dividends": recent_divs,
+        "notes": store.get_notes(),
+        "fee_config": {
+            "vfex_fee_pct": round(vfex_fee_pct, 2),
+            "zse_fee_pct": round(zse_fee_pct, 2),
+            "max_stock_pct": round(max_stock_pct, 1),
+            "profit_take_pct": round(profit_take_pct, 1),
+        },
         "account": store.ctrade_status(),
         "accounts": store.accounts_status(),
         "connected_count": sum(1 for v in store.accounts_status().values() if v.get("connected")),
@@ -2086,6 +2379,27 @@ def build_parser() -> argparse.ArgumentParser:
     p_panel.add_argument("--market", choices=["all", "vfex"], default="all", help="Signal scope (all=VFEX+ZSE, vfex=VFEX USD only)")
     p_panel.add_argument("--discount", type=float, default=3.0, help="Pullback discount threshold pct")
     p_panel.add_argument("--notify-signals", action="store_true", help="Send notify-send alerts for top market-hours trade signals")
+    p_panel.add_argument("--vfex-fee", type=float, default=0.0, help="VFEX fee per side pct (0.0 default)")
+    p_panel.add_argument("--zse-fee", type=float, default=0.0, help="ZSE fee per side pct (0.0 default)")
+    p_panel.add_argument("--max-stock-pct", type=float, default=25.0, help="Max allocation cap pct for sizing")
+    p_panel.add_argument("--profit-take-pct", type=float, default=15.0, help="Profit-take signal pct")
+
+    p_stop = sub.add_parser("stop", help="Manage trailing stop-loss alerts (%)")
+    p_stop.add_argument("action", choices=["add", "remove", "list"])
+    p_stop.add_argument("symbol", nargs="?")
+    p_stop.add_argument("trail_pct", nargs="?", type=float)
+
+    p_note = sub.add_parser("note", help="Manage per-symbol investment thesis notes")
+    p_note.add_argument("action", choices=["set", "clear", "list"])
+    p_note.add_argument("symbol", nargs="?")
+    p_note.add_argument("text", nargs="?")
+
+    p_trade = sub.add_parser("trade", help="Delete a mistaken trade from ledger")
+    p_trade.add_argument("action", choices=["delete"])
+    p_trade.add_argument("index", type=int)
+
+    sub.add_parser("screener", help="Output full VFEX + ZSE screener table (JSON)")
+    sub.add_parser("backtest", help="Show rolling 90-day signal track record")
 
     p_signals = sub.add_parser("signals", help="Show ranked BUY/SELL trade opportunities")
     p_signals.add_argument("--market", choices=["all", "vfex"], default="all")
@@ -2219,7 +2533,38 @@ def _dispatch(args: argparse.Namespace, store: VFEXStore) -> int:
             include_zse=(args.market == "all"),
             discount_pct=args.discount,
             notify_signals=args.notify_signals,
+            vfex_fee_pct=args.vfex_fee,
+            zse_fee_pct=args.zse_fee,
+            max_stock_pct=args.max_stock_pct,
+            profit_take_pct=args.profit_take_pct,
         )))
+    elif args.command == "stop":
+        if args.action == "list":
+            for sym, st in sorted(store.state.get("trailing_stops", {}).items()):
+                print(f"{sym:<8} -{st['trail_pct']:.1f}% from peak {st['peak_price']:.4f}")
+        elif args.action == "add" and args.symbol and args.trail_pct is not None:
+            st = store.add_trailing_stop(args.symbol, args.trail_pct)
+            print(f"Trailing stop set for {st['symbol']} (-{st['trail_pct']:.1f}% from peak {st['peak_price']:.4f})")
+        elif args.action == "remove" and args.symbol:
+            store.remove_trailing_stop(args.symbol)
+            print(f"Removed trailing stop for {args.symbol.upper()}.")
+    elif args.command == "note":
+        if args.action == "list":
+            print(json.dumps(store.get_notes()))
+        elif args.action == "set" and args.symbol:
+            store.set_note(args.symbol, args.text or "")
+            print(f"Saved thesis note for {args.symbol.upper()}.")
+        elif args.action == "clear" and args.symbol:
+            store.set_note(args.symbol, "")
+            print(f"Cleared note for {args.symbol.upper()}.")
+    elif args.command == "trade":
+        if args.action == "delete":
+            removed = store.delete_trade(args.index)
+            print(f"Removed trade #{args.index}: {removed.get('action')} {removed.get('symbol')}")
+    elif args.command == "screener":
+        print(json.dumps(store.market_screener()))
+    elif args.command == "backtest":
+        print(json.dumps(store.signal_backtest_summary(), indent=2))
     elif args.command == "signals":
         sigs = store.trade_signals(discount_pct=args.discount, include_zse=(args.market == "all"))
         if args.json:
