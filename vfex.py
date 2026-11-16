@@ -5,12 +5,15 @@ from __future__ import annotations
 
 import argparse
 import csv
+import http.cookiejar
 import io
 import json
 import os
+import stat
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -18,9 +21,18 @@ from typing import Any
 
 DEFAULT_CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "vfex-direct"
 
-VFEX_DIRECT_URL = "https://d3u8q0mxu6epjj.cloudfront.net/api/v1/voms/price-sheets/active"
-CTRADE_VFEX_URL = "https://ctradenew.ctrade.co.zw/api/web-proxy/online.ctrade_php/marketwatchvx.php"
-CTRADE_ZSE_URL = "https://ctradenew.ctrade.co.zw/api/mobile-proxy/marketwatchzsenew"
+VFEX_DIRECT_API_BASE = "https://d3u8q0mxu6epjj.cloudfront.net/api/v1"
+ZSE_DIRECT_API_BASE = "https://d17zh5y0djjrt1.cloudfront.net/api/v1"
+VFEX_DIRECT_URL = f"{VFEX_DIRECT_API_BASE}/voms/price-sheets/active"
+CTRADE_BASE_URL = "https://ctradenew.ctrade.co.zw"
+CTRADE_VFEX_URL = f"{CTRADE_BASE_URL}/api/web-proxy/online.ctrade_php/marketwatchvx.php"
+CTRADE_ZSE_URL = f"{CTRADE_BASE_URL}/api/mobile-proxy/marketwatchzsenew"
+
+VOMS_PROVIDERS: dict[str, dict[str, Any]] = {
+    "vfex_direct": {"base_url": VFEX_DIRECT_API_BASE, "currency": "USD", "strip_vx": True, "label": "VFEX-D", "title": "VFEX Direct"},
+    "zse_direct": {"base_url": ZSE_DIRECT_API_BASE, "currency": "ZWG", "strip_vx": False, "label": "ZSE-D", "title": "ZSE Direct"},
+}
+PORTAL_LABELS: dict[str, str] = {"ctrade": "C-TRADE", "vfex_direct": "VFEX-D", "zse_direct": "ZSE-D"}
 
 # Common VFEX listed equities (USD-denominated)
 KNOWN_VFEX_SYMBOLS: dict[str, str] = {
@@ -71,6 +83,142 @@ def _safe_float(val: Any) -> float | None:
 def _safe_int(val: Any) -> int | None:
     f = _safe_float(val)
     return int(round(f)) if f is not None else None
+
+
+def compute_xirr(cashflows: list[tuple[datetime, float]]) -> float | None:
+    """Compute annualized XIRR percentage for dated cashflows (neg=outflow, pos=inflow)."""
+    if len(cashflows) < 2:
+        return None
+    ordered = sorted(cashflows, key=lambda c: c[0])
+    d0 = ordered[0][0]
+    span_days = (ordered[-1][0] - d0).days
+    if span_days < 7:
+        return None
+    if not (any(amt < 0 for _, amt in ordered) and any(amt > 0 for _, amt in ordered)):
+        return None
+
+    years = [(d - d0).days / 365.0 for d, _ in ordered]
+    amts = [float(a) for _, a in ordered]
+
+    def npv(rate: float) -> float:
+        return sum(a / ((1.0 + rate) ** t) for t, a in zip(years, amts))
+
+    lo, hi = -0.95, 10.0
+    f_lo, f_hi = npv(lo), npv(hi)
+    if f_lo * f_hi > 0:
+        return None
+    for _ in range(60):
+        mid = (lo + hi) / 2.0
+        f_mid = npv(mid)
+        if abs(f_mid) < 1e-6:
+            lo = hi = mid
+            break
+        if f_lo * f_mid <= 0:
+            hi, f_hi = mid, f_mid
+        else:
+            lo, f_lo = mid, f_mid
+    return round(((lo + hi) / 2.0) * 100.0, 1)
+
+
+def compute_symbol_technicals(hist: list[dict[str, Any]], cur: float) -> dict[str, Any]:
+    """Compute 20D/30D averages, rolling MA series, Z-score, and RSI-14 from candle history."""
+    closes = [float(h.get("close", h.get("price", 0.0))) for h in hist if float(h.get("close", h.get("price", 0.0))) > 0]
+    if not closes and cur > 0:
+        closes = [cur]
+    avg30 = sum(closes) / len(closes) if closes else cur
+    drop30 = ((avg30 - cur) / avg30 * 100.0) if avg30 > 0 else 0.0
+
+    ma_window = closes[-20:] if len(closes) >= 20 else closes
+    ma20 = round(sum(ma_window) / len(ma_window), 4) if ma_window else None
+    ma20_series: list[float] = []
+    for idx in range(len(closes)):
+        win = closes[max(0, idx - 19): idx + 1]
+        ma20_series.append(round(sum(win) / len(win), 4))
+
+    z_score = None
+    if len(closes) >= 5 and ma20 is not None:
+        mean = sum(ma_window) / len(ma_window)
+        var = sum((x - mean) ** 2 for x in ma_window) / len(ma_window)
+        std = var ** 0.5
+        if std > 1e-9:
+            z_score = round((cur - mean) / std, 2)
+
+    rsi14 = None
+    if len(closes) >= 4:
+        deltas = [closes[i] - closes[i - 1] for i in range(1, len(closes))][-14:]
+        gains = sum(d for d in deltas if d > 0) / len(deltas)
+        losses = sum(-d for d in deltas if d < 0) / len(deltas)
+        if losses <= 1e-9:
+            rsi14 = 100.0 if gains > 0 else 50.0
+        else:
+            rs = gains / losses
+            rsi14 = round(100.0 - (100.0 / (1.0 + rs)), 1)
+
+    return {
+        "avg30": round(avg30, 4),
+        "drop30": round(drop30, 2),
+        "ma20": ma20,
+        "ma20_series": ma20_series,
+        "z_score": z_score,
+        "rsi14": rsi14,
+    }
+
+
+def compute_smart_limit(
+    price: float,
+    bid: float | None,
+    ask: float | None,
+    bid_vol: int | None,
+    ask_vol: int | None,
+    action: str = "BUY",
+) -> dict[str, Any]:
+    """Compute spread %, liquidity score (0-100), and optimal passive limit price."""
+    b = float(bid or 0.0)
+    a = float(ask or 0.0)
+    bv = int(bid_vol or 0)
+    av = int(ask_vol or 0)
+    mid = (b + a) / 2.0 if (b > 0 and a > 0) else price
+    spread_pct = round(((a - b) / mid * 100.0), 2) if (b > 0 and a > b and mid > 0) else None
+    wide_spread = spread_pct is not None and spread_pct > 5.0
+
+    # Liquidity score combines resting top-of-book depth and spread tightness
+    liq = 0
+    if bv > 0 and av > 0:
+        liq += 40
+    elif bv > 0 or av > 0:
+        liq += 20
+    total_vol = bv + av
+    if total_vol >= 5000:
+        liq += 35
+    elif total_vol >= 500:
+        liq += 25
+    elif total_vol >= 50:
+        liq += 15
+    if spread_pct is not None:
+        if spread_pct <= 2.0:
+            liq += 25
+        elif spread_pct <= 5.0:
+            liq += 15
+        elif spread_pct <= 12.0:
+            liq += 5
+
+    if action == "SELL":
+        if a > b > 0 and spread_pct and spread_pct > 2.0:
+            optimal = round(a - max(0.0005, (a - b) * 0.25), 4)
+        else:
+            optimal = round(b if b > 0 else price, 4)
+    else:
+        if a > b > 0 and spread_pct and spread_pct > 2.0:
+            optimal = round(b + max(0.0005, (a - b) * 0.25), 4)
+        else:
+            optimal = round(a if a > 0 else price, 4)
+
+    return {
+        "spread_pct": spread_pct,
+        "wide_spread": wide_spread,
+        "liquidity_score": min(100, liq),
+        "optimal_limit": optimal,
+    }
 
 
 class VFEXStore:
@@ -369,10 +517,244 @@ class VFEXStore:
         })
         self.save()
 
-    def portfolio_summary(self) -> dict[str, Any]:
-        items = []
+    def _rebuild_portfolio_from_trades(self) -> None:
+        """Recompute holdings, FIFO lots, and realized P&L from trade ledger."""
+        portfolio: dict[str, dict[str, Any]] = {}
+        realized_total = 0.0
+        for tr in self.state.get("trades", []):
+            sym = str(tr.get("symbol") or "").upper()
+            action = str(tr.get("action") or "").upper()
+            shares = float(tr.get("shares") or 0.0)
+            price = float(tr.get("price") or 0.0)
+            dt = str(tr.get("date") or "")
+            if action == "BUY":
+                h = portfolio.setdefault(sym, {"shares": 0.0, "avg_cost": 0.0, "lots": []})
+                old_sh = float(h["shares"])
+                old_avg = float(h["avg_cost"])
+                new_sh = old_sh + shares
+                h["shares"] = round(new_sh, 6)
+                h["avg_cost"] = round(((old_sh * old_avg) + (shares * price)) / new_sh, 4) if new_sh > 0 else 0.0
+                h["lots"].append({"date": dt, "shares": round(shares, 6), "price": round(price, 4)})
+            elif action == "SELL" and sym in portfolio:
+                h = portfolio[sym]
+                lots = list(h.get("lots", []))
+                to_sell = shares
+                cost_basis = 0.0
+                new_lots = []
+                for lot in lots:
+                    lot_sh = float(lot["shares"])
+                    lot_pr = float(lot["price"])
+                    if to_sell <= 1e-9:
+                        new_lots.append(lot)
+                    elif lot_sh <= to_sell + 1e-9:
+                        cost_basis += lot_sh * lot_pr
+                        to_sell -= lot_sh
+                    else:
+                        cost_basis += to_sell * lot_pr
+                        new_lots.append({**lot, "shares": round(lot_sh - to_sell, 6)})
+                        to_sell = 0.0
+                realized = round((shares * price) - cost_basis, 4)
+                tr["realized_pnl"] = round(realized, 2)
+                realized_total += realized
+                rem = float(h["shares"]) - shares
+                if rem <= 1e-9:
+                    portfolio.pop(sym, None)
+                else:
+                    h["shares"] = round(rem, 6)
+                    h["lots"] = new_lots
+                    if new_lots:
+                        rem_cost = sum(float(l["shares"]) * float(l["price"]) for l in new_lots)
+                        h["avg_cost"] = round(rem_cost / rem, 4)
+        self.state["portfolio"] = portfolio
+        self.state["realized_pnl"] = round(realized_total, 4)
+
+    def delete_trade(self, index: int) -> dict[str, Any]:
+        """Remove a trade by index from history and recompute FIFO holdings."""
+        trades = self.state.get("trades", [])
+        if index < 0 or index >= len(trades):
+            raise IndexError(f"Trade index {index} out of range.")
+        removed = trades.pop(index)
+        self._rebuild_portfolio_from_trades()
+        self.save()
+        return removed
+
+    def set_note(self, symbol: str, text: str) -> None:
+        """Save or clear an investment thesis note for a symbol."""
+        sym = symbol.upper()
+        notes = self.state.setdefault("notes", {})
+        clean = text.strip()
+        if clean:
+            notes[sym] = clean
+        else:
+            notes.pop(sym, None)
+        self.save()
+
+    def get_notes(self) -> dict[str, str]:
+        return dict(self.state.get("notes", {}))
+
+    def add_trailing_stop(self, symbol: str, trail_pct: float) -> dict[str, Any]:
+        """Configure or update a trailing stop-loss percentage for a symbol."""
+        if trail_pct <= 0 or trail_pct >= 90:
+            raise ValueError("Trailing stop % must be between 0 and 90.")
+        sym = symbol.upper()
+        cur = self.get_price(sym) or 0.0
+        stops = self.state.setdefault("trailing_stops", {})
+        entry = {
+            "symbol": sym,
+            "trail_pct": round(float(trail_pct), 2),
+            "peak_price": round(float(cur), 4),
+            "triggered": False,
+            "created_at": datetime.now(timezone.utc).date().isoformat(),
+        }
+        stops[sym] = entry
+        self.save()
+        return entry
+
+    def remove_trailing_stop(self, symbol: str) -> bool:
+        stops = self.state.get("trailing_stops", {})
+        removed = stops.pop(symbol.upper(), None) is not None
+        if removed:
+            self.save()
+        return removed
+
+    def check_trailing_stops(self, notify: bool = True) -> list[dict[str, Any]]:
+        """Update peak prices on trailing stops and fire notification if drawdown hits trail_pct."""
+        stops = self.state.get("trailing_stops", {})
+        hits: list[dict[str, Any]] = []
+        changed = False
+        for sym, stop in list(stops.items()):
+            cur = self.get_price(sym)
+            if cur is None or cur <= 0:
+                continue
+            peak = float(stop.get("peak_price") or 0.0)
+            if cur > peak:
+                stop["peak_price"] = round(cur, 4)
+                stop["triggered"] = False
+                peak = cur
+                changed = True
+            trail = float(stop.get("trail_pct") or 0.0)
+            stop_price = round(peak * (1.0 - trail / 100.0), 4)
+            if cur <= stop_price and not stop.get("triggered"):
+                stop["triggered"] = True
+                changed = True
+                hits.append({**stop, "current_price": cur, "stop_price": stop_price})
+                if notify:
+                    cur_code = infer_currency(sym, self.get_price_entry(sym))
+                    send_notification(
+                        f"VFEX Trailing Stop: {sym}",
+                        f"{sym} hit {format_money(cur, cur_code, 4)} (-{trail:.1f}% from peak {format_money(peak, cur_code, 4)})",
+                    )
+        if changed:
+            self.save()
+        return hits
+
+    def _build_holding_item(
+        self,
+        sym: str,
+        shares: float,
+        avg_cost: float,
+        cur_code: str,
+        source_tag: str,
+        is_synced: bool,
+        lots: list[dict[str, Any]],
+        div_amount: float,
+        targets: dict[str, float],
+        fee_pct: float,
+        provider: str | None = None,
+    ) -> dict[str, Any]:
+        p_entry = self.get_price_entry(sym)
+        current_price = self.get_price(sym)
+        if current_price is None:
+            current_price = avg_cost
+        cost = shares * avg_cost
+        value = shares * current_price
+        pnl = value - cost
+        pnl_pct = (pnl / cost * 100.0) if cost > 0 else 0.0
+
+        f = max(0.0, fee_pct) / 100.0
+        net_cost = cost * (1.0 + f)
+        net_val = value * (1.0 - f)
+        net_pnl = net_val - net_cost
+        net_pnl_pct = (net_pnl / net_cost * 100.0) if net_cost > 0 else 0.0
+        breakeven = (avg_cost * (1.0 + f) / (1.0 - f)) if f < 0.5 else avg_cost
+
+        days_held: int | None = None
+        xirr_pct: float | None = None
+        lot_dates = [str(l.get("date", "")) for l in lots if l.get("date")]
+        if lot_dates:
+            try:
+                now_dt = datetime.now(timezone.utc)
+                earliest = datetime.strptime(min(lot_dates), "%Y-%m-%d").date()
+                days_held = max(0, (now_dt.date() - earliest).days)
+                cfs: list[tuple[datetime, float]] = []
+                for l in lots:
+                    ld = datetime.strptime(str(l["date"]), "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                    cfs.append((ld, -(float(l["shares"]) * float(l["price"]) * (1.0 + f))))
+                for d in self.state.get("dividends", []):
+                    if str(d.get("symbol", "")).upper() == sym and d.get("date"):
+                        dd = datetime.strptime(str(d["date"]), "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                        cfs.append((dd, float(d["amount"])))
+                cfs.append((now_dt, net_val))
+                xirr_pct = compute_xirr(cfs)
+            except ValueError:
+                days_held = None
+
+        stop = self.state.get("trailing_stops", {}).get(sym)
+        stop_pct = float(stop["trail_pct"]) if stop else None
+        peak_price = float(stop.get("peak_price") or current_price) if stop else None
+        stop_price = round(peak_price * (1.0 - stop_pct / 100.0), 4) if (stop_pct and peak_price) else None
+        stop_dist_pct = round(((current_price - stop_price) / current_price * 100.0), 1) if (stop_price and current_price > 0) else None
+
+        hist = self.state.get("history", {}).get(sym, [])
+        tech = compute_symbol_technicals(hist, current_price)
+
+        item: dict[str, Any] = {
+            "symbol": sym,
+            "source_tag": source_tag,
+            "is_synced": is_synced,
+            "currency": cur_code,
+            "shares": shares,
+            "avg_cost": avg_cost,
+            "breakeven_price": round(breakeven, 4),
+            "cost": round(cost, 2),
+            "price": current_price,
+            "value": value,
+            "pnl": pnl,
+            "pnl_pct": pnl_pct,
+            "net_pnl": round(net_pnl, 2),
+            "net_pnl_pct": round(net_pnl_pct, 1),
+            "days_held": days_held,
+            "xirr_pct": xirr_pct,
+            "dividends": round(div_amount, 2),
+            "change_pct": self.get_daily_change(sym),
+            "best_bid": p_entry.get("best_bid"),
+            "best_ask": p_entry.get("best_ask"),
+            "bid_volume": p_entry.get("bid_volume"),
+            "ask_volume": p_entry.get("ask_volume"),
+            "spread": p_entry.get("spread"),
+            "company_name": p_entry.get("company_name"),
+            "candles": self.get_candles(sym),
+            "ma20": tech["ma20"],
+            "ma20_series": tech["ma20_series"],
+            "rsi14": tech["rsi14"],
+            "z_score": tech["z_score"],
+            "lots": lots,
+            "target_pct": targets.get(sym),
+            "stop_pct": stop_pct,
+            "stop_price": stop_price,
+            "peak_price": peak_price,
+            "stop_distance_pct": stop_dist_pct,
+        }
+        if provider:
+            item["provider"] = provider
+        return item
+
+    def portfolio_summary(self, vfex_fee_pct: float = 0.0, zse_fee_pct: float = 0.0) -> dict[str, Any]:
+        items: list[dict[str, Any]] = []
         total_cost = 0.0
         total_value = 0.0
+        net_total_cost = 0.0
+        net_total_value = 0.0
         zwg_cost = 0.0
         zwg_value = 0.0
         targets = self.state.get("targets", {})
@@ -392,69 +774,111 @@ class VFEXStore:
         )
 
         for sym, holding in sorted(self.state["portfolio"].items()):
-            shares = float(holding["shares"])
-            avg_cost = float(holding["avg_cost"])
-            cost = shares * avg_cost
-            p_entry = self.get_price_entry(sym)
-            cur_code = infer_currency(sym, p_entry)
-            current_price = self.get_price(sym)
-            if current_price is None:
-                current_price = avg_cost
-            value = shares * current_price
-            pnl = value - cost
-            pnl_pct = (pnl / cost * 100.0) if cost > 0 else 0.0
-            if cur_code == "ZWG":
-                zwg_cost += cost
-                zwg_value += value
+            cur_code = infer_currency(sym, self.get_price_entry(sym))
+            fee = zse_fee_pct if cur_code == "ZWG" else vfex_fee_pct
+            item = self._build_holding_item(
+                sym=sym,
+                shares=float(holding["shares"]),
+                avg_cost=float(holding["avg_cost"]),
+                cur_code=cur_code,
+                source_tag="Manual",
+                is_synced=False,
+                lots=holding.get("lots", []),
+                div_amount=div_by_sym.get(sym, 0.0),
+                targets=targets,
+                fee_pct=fee,
+            )
+            items.append(item)
+
+        wallet_cash_usd = 0.0
+        wallet_cash_zwg = 0.0
+        for prov, acct_data in sorted(self.state.get("synced_accounts", {}).items()):
+            if not isinstance(acct_data, dict):
+                continue
+            wallet_cash_usd += float(acct_data.get("cash_usd") or 0.0)
+            wallet_cash_zwg += float(acct_data.get("cash_zwg") or 0.0)
+            tag = PORTAL_LABELS.get(prov, prov.upper())
+            for sh_row in acct_data.get("holdings", []):
+                sym = str(sh_row.get("symbol") or "").upper()
+                shares = float(sh_row.get("shares") or 0.0)
+                if not sym or shares <= 0:
+                    continue
+                cur_code = str(sh_row.get("currency") or infer_currency(sym, self.get_price_entry(sym)))
+                fee = zse_fee_pct if cur_code == "ZWG" else vfex_fee_pct
+                items.append(self._build_holding_item(
+                    sym=sym,
+                    shares=shares,
+                    avg_cost=float(sh_row.get("avg_cost") or 0.0),
+                    cur_code=cur_code,
+                    source_tag=tag,
+                    is_synced=True,
+                    lots=[],
+                    div_amount=0.0,
+                    targets=targets,
+                    fee_pct=fee,
+                    provider=prov,
+                ))
+
+        for item in items:
+            c = float(item["shares"]) * float(item["avg_cost"])
+            v = float(item["value"])
+            if item["currency"] == "ZWG":
+                zwg_cost += c
+                zwg_value += v
             else:
-                total_cost += cost
-                total_value += value
-            lots = holding.get("lots", [])
-            days_held: int | None = None
-            lot_dates = [str(l.get("date", "")) for l in lots if l.get("date")]
-            if lot_dates:
-                try:
-                    earliest = datetime.strptime(min(lot_dates), "%Y-%m-%d").date()
-                    days_held = max(0, (datetime.now(timezone.utc).date() - earliest).days)
-                except ValueError:
-                    days_held = None
-            items.append({
-                "symbol": sym,
-                "currency": cur_code,
-                "shares": shares,
-                "avg_cost": avg_cost,
-                "cost": round(cost, 2),
-                "price": current_price,
-                "value": value,
-                "pnl": pnl,
-                "pnl_pct": pnl_pct,
-                "days_held": days_held,
-                "dividends": round(div_by_sym.get(sym, 0.0), 2),
-                "change_pct": self.get_daily_change(sym),
-                "best_bid": p_entry.get("best_bid"),
-                "best_ask": p_entry.get("best_ask"),
-                "bid_volume": p_entry.get("bid_volume"),
-                "ask_volume": p_entry.get("ask_volume"),
-                "spread": p_entry.get("spread"),
-                "company_name": p_entry.get("company_name"),
-                "candles": self.get_candles(sym),
-                "lots": lots,
-                "target_pct": targets.get(sym),
-            })
+                f = max(0.0, vfex_fee_pct) / 100.0
+                total_cost += c
+                total_value += v
+                net_total_cost += c * (1.0 + f)
+                net_total_value += v * (1.0 - f)
+
         for item in items:
             denom = zwg_value if item["currency"] == "ZWG" else total_value
             item["alloc_pct"] = round((item["value"] / denom) * 100.0, 1) if denom > 0 else 0.0
+
         total_pnl = total_value - total_cost
         total_pnl_pct = (total_pnl / total_cost * 100.0) if total_cost > 0 else 0.0
+        net_total_pnl = net_total_value - net_total_cost
+        net_total_pnl_pct = (net_total_pnl / net_total_cost * 100.0) if net_total_cost > 0 else 0.0
         zwg_pnl = zwg_value - zwg_cost
         zwg_pnl_pct = (zwg_pnl / zwg_cost * 100.0) if zwg_cost > 0 else 0.0
         realized_pnl = round(float(self.state.get("realized_pnl", 0.0)), 2)
+
+        # Portfolio-wide USD XIRR from trades + dividends + current USD value
+        port_cfs: list[tuple[datetime, float]] = []
+        f_usd = max(0.0, vfex_fee_pct) / 100.0
+        for tr in self.state.get("trades", []):
+            sym = str(tr.get("symbol") or "").upper()
+            if infer_currency(sym, self.get_price_entry(sym)) != "USD" or not tr.get("date"):
+                continue
+            try:
+                td = datetime.strptime(str(tr["date"]), "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                gross = float(tr["shares"]) * float(tr["price"])
+                amt = -(gross * (1.0 + f_usd)) if tr.get("action") == "BUY" else (gross * (1.0 - f_usd))
+                port_cfs.append((td, amt))
+            except ValueError:
+                pass
+        for d in dividends_list:
+            sym = str(d.get("symbol") or "").upper()
+            if infer_currency(sym, self.get_price_entry(sym)) == "USD" and d.get("date"):
+                try:
+                    dd = datetime.strptime(str(d["date"]), "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                    port_cfs.append((dd, float(d["amount"])))
+                except ValueError:
+                    pass
+        if net_total_value > 0:
+            port_cfs.append((datetime.now(timezone.utc), net_total_value))
+        portfolio_xirr_pct = compute_xirr(port_cfs)
+
         return {
             "items": items,
             "total_cost": total_cost,
             "total_value": total_value,
             "total_pnl": total_pnl,
             "total_pnl_pct": total_pnl_pct,
+            "net_total_pnl": round(net_total_pnl, 2),
+            "net_total_pnl_pct": round(net_total_pnl_pct, 1),
+            "portfolio_xirr_pct": portfolio_xirr_pct,
             "realized_pnl": realized_pnl,
             "total_dividends": usd_dividends,
             "total_return": round(total_pnl + usd_dividends + realized_pnl, 2),
@@ -464,6 +888,8 @@ class VFEXStore:
             "zwg_pnl_pct": round(zwg_pnl_pct, 2),
             "zwg_dividends": zwg_dividends,
             "has_zwg": zwg_cost > 0 or zwg_value > 0 or zwg_dividends > 0,
+            "wallet_cash_usd": round(wallet_cash_usd, 2),
+            "wallet_cash_zwg": round(wallet_cash_zwg, 2),
         }
 
     def set_target(self, symbol: str, pct: float) -> None:
@@ -623,6 +1049,555 @@ class VFEXStore:
             if reasons:
                 recs.append({"symbol": sym, "price": cur, "avg30": round(avg30, 4), "reasons": reasons})
         return recs
+
+    def trade_signals(
+        self,
+        discount_pct: float = 3.0,
+        include_zse: bool = True,
+        profit_take_pct: float = 15.0,
+        limit: int = 8,
+    ) -> list[dict[str, Any]]:
+        """Score live VFEX/ZSE counters on order-book pressure, pullbacks, targets, and profit-take levels."""
+        summary = self.portfolio_summary()
+        holdings = {item["symbol"]: item for item in summary["items"]}
+        targets = self.get_targets()
+        history_map = self.state.get("history", {})
+        below_targets = {
+            a["symbol"]: float(a["target"])
+            for a in self.state.get("alerts", [])
+            if a.get("direction") == "below"
+        }
+        watchlist_set = set(self.state.get("watchlist", []))
+        signals: list[dict[str, Any]] = []
+
+        for sym, entry in sorted(self.state.get("prices", {}).items()):
+            cur = float(entry.get("price") or 0.0)
+            if cur <= 0:
+                continue
+            cur_code = infer_currency(sym, entry)
+            if not include_zse and cur_code != "USD":
+                continue
+
+            hist = history_map.get(sym, [])
+            avg30 = sum(float(h.get("close", h.get("price", cur))) for h in hist) / len(hist) if hist else cur
+            drop30 = ((avg30 - cur) / avg30 * 100.0) if avg30 > 0 else 0.0
+            chg_pct = entry.get("change_pct")
+            bid = float(entry.get("best_bid") or 0.0)
+            ask = float(entry.get("best_ask") or 0.0)
+            bid_vol = int(entry.get("bid_volume") or 0)
+            ask_vol = int(entry.get("ask_volume") or 0)
+            spread_pct = ((ask - bid) / cur * 100.0) if (bid > 0 and ask > bid) else None
+
+            buy_score = 0
+            buy_reasons: list[str] = []
+            if len(hist) >= 2 and drop30 >= discount_pct:
+                buy_score += min(40, int(round(drop30 * 3.0)))
+                buy_reasons.append(f"-{drop30:.1f}% vs 30d avg")
+            dip_floor = max(1.5, discount_pct * 0.67)
+            if chg_pct is not None and float(chg_pct) <= -dip_floor:
+                buy_score += min(30, int(round(abs(float(chg_pct)) * 4.0)))
+                buy_reasons.append(f"{float(chg_pct):.1f}% today")
+            if bid > 0 and bid_vol >= 50 and (ask_vol == 0 or bid_vol >= 2 * ask_vol):
+                buy_score += 25
+                if spread_pct is not None and spread_pct <= 5.0:
+                    buy_score += 10
+                buy_reasons.append(f"Bid vol {bid_vol} > Ask {ask_vol}")
+            if sym in below_targets and cur <= below_targets[sym]:
+                buy_score += 35
+                buy_reasons.append(f"<= target {format_money(below_targets[sym], cur_code, 4)}")
+            if cur_code == "USD" and sym in targets:
+                cur_alloc = float(holdings[sym]["alloc_pct"]) if sym in holdings else 0.0
+                if cur_alloc < float(targets[sym]) - 5.0:
+                    buy_score += 20
+                    buy_reasons.append(f"Alloc {cur_alloc:.0f}% < {float(targets[sym]):.0f}%")
+
+            if buy_score > 0:
+                if sym in watchlist_set or sym in holdings:
+                    buy_score += 5
+                signals.append({
+                    "symbol": sym,
+                    "action": "BUY",
+                    "score": buy_score,
+                    "currency": cur_code,
+                    "price": cur,
+                    "limit_price": round(ask if ask > 0 else cur, 4),
+                    "best_bid": entry.get("best_bid"),
+                    "best_ask": entry.get("best_ask"),
+                    "bid_volume": entry.get("bid_volume"),
+                    "ask_volume": entry.get("ask_volume"),
+                    "change_pct": chg_pct,
+                    "reasons": buy_reasons,
+                    "headline": f"BUY {sym} ({buy_reasons[0]})",
+                })
+
+            if sym in holdings:
+                held = holdings[sym]
+                sell_score = 0
+                sell_reasons: list[str] = []
+                if float(held.get("pnl_pct") or 0.0) >= profit_take_pct:
+                    sell_score += 30
+                    sell_reasons.append(f"+{float(held['pnl_pct']):.1f}% gain")
+                if held.get("target_pct") is not None and float(held.get("alloc_pct") or 0.0) > float(held["target_pct"]) + 10.0:
+                    sell_score += 20
+                    sell_reasons.append(f"Alloc {float(held['alloc_pct']):.0f}% > {float(held['target_pct']):.0f}%")
+                if chg_pct is not None and float(chg_pct) >= 8.0 and ask > 0 and ask_vol >= 2 * max(1, bid_vol):
+                    sell_score += 20
+                    sell_reasons.append(f"+{float(chg_pct):.1f}% spike / heavy ask")
+                if sell_score > 0:
+                    signals.append({
+                        "symbol": sym,
+                        "action": "SELL",
+                        "score": sell_score,
+                        "currency": cur_code,
+                        "price": cur,
+                        "limit_price": round(bid if bid > 0 else cur, 4),
+                        "best_bid": entry.get("best_bid"),
+                        "best_ask": entry.get("best_ask"),
+                        "bid_volume": entry.get("bid_volume"),
+                        "ask_volume": entry.get("ask_volume"),
+                        "change_pct": chg_pct,
+                        "reasons": sell_reasons,
+                        "headline": f"SELL {sym} ({sell_reasons[0]})",
+                    })
+
+        signals.sort(key=lambda s: (-int(s["score"]), s["symbol"]))
+        return signals[:limit]
+
+    def notify_trade_signals(self, signals: list[dict[str, Any]], min_score: int = 30) -> list[dict[str, Any]]:
+        """Send one desktop notification per day for each high-conviction signal."""
+        today = datetime.now(timezone.utc).date().isoformat()
+        seen_today = [k for k in self.state.get("notified_signals", []) if k.startswith(today + ":")]
+        seen_set = set(seen_today)
+        sent: list[dict[str, Any]] = []
+        for sig in signals:
+            if int(sig.get("score", 0)) < min_score:
+                continue
+            key = f"{today}:{sig['action']}:{sig['symbol']}"
+            if key in seen_set:
+                continue
+            seen_set.add(key)
+            seen_today.append(key)
+            cur_code = sig.get("currency", "USD")
+            body = f"{format_money(sig['price'], cur_code, 4)} — {', '.join(sig.get('reasons', []))}"
+            send_notification(f"VFEX Signal: {sig['action']} {sig['symbol']}", body)
+            sent.append(sig)
+        if len(seen_today) != len(self.state.get("notified_signals", [])) or sent:
+            self.state["notified_signals"] = seen_today
+            self.save()
+        return sent
+
+    @property
+    def ctrade_file(self) -> Path:
+        return self.config_dir / "ctrade.json"
+
+    @property
+    def accounts_file(self) -> Path:
+        return self.config_dir / "accounts.json"
+
+    @staticmethod
+    def _mask_email(email: str) -> str:
+        if "@" not in email:
+            return email[:2] + "***" if email else ""
+        local, domain = email.split("@", 1)
+        return (local[:2] + "***@" + domain) if len(local) > 2 else ("***@" + domain)
+
+    def _load_accounts(self) -> dict[str, Any]:
+        data: dict[str, Any] = {}
+        if self.accounts_file.exists():
+            try:
+                loaded = json.loads(self.accounts_file.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    data = loaded
+            except json.JSONDecodeError:
+                pass
+        if "ctrade" not in data and self.ctrade_file.exists():
+            try:
+                legacy = json.loads(self.ctrade_file.read_text(encoding="utf-8"))
+                if isinstance(legacy, dict) and legacy:
+                    data["ctrade"] = legacy
+            except json.JSONDecodeError:
+                pass
+        return data
+
+    def _save_accounts(self, data: dict[str, Any]) -> None:
+        self.accounts_file.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        os.chmod(self.accounts_file, stat.S_IRUSR | stat.S_IWUSR)
+
+    def _load_ctrade_creds(self) -> dict[str, Any]:
+        return dict(self._load_accounts().get("ctrade") or {})
+
+    def _save_ctrade_creds(self, data: dict[str, Any]) -> None:
+        self.ctrade_file.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        os.chmod(self.ctrade_file, stat.S_IRUSR | stat.S_IWUSR)
+        accounts = self._load_accounts()
+        accounts["ctrade"] = data
+        self._save_accounts(accounts)
+
+    def _provider_status(self, provider: str) -> dict[str, Any]:
+        creds = self._load_accounts().get(provider) or {}
+        synced = self.state.get("synced_accounts", {}).get(provider) or {}
+        legacy_ct = self.state.get("ctrade_account", {}) if provider == "ctrade" else {}
+        email = str(creds.get("email") or legacy_ct.get("email") or "")
+        connected = bool(
+            (provider == "ctrade" and creds.get("email") and creds.get("password"))
+            or (provider != "ctrade" and creds.get("access_token"))
+        )
+        mfa_pending = bool(creds.get("mfa_pending") and creds.get("mfa_token"))
+        return {
+            "provider": provider,
+            "connected": connected,
+            "mfa_pending": mfa_pending,
+            "mfa_message": str(creds.get("mfa_message") or ""),
+            "email_masked": self._mask_email(email) if email else "",
+            "cds_number": str(creds.get("cds_number") or legacy_ct.get("cds_number") or ""),
+            "last_sync": str(synced.get("last_sync") or legacy_ct.get("last_sync") or ""),
+            "holdings_count": len(synced.get("holdings", [])) or int(legacy_ct.get("holdings_count") or 0),
+            "cash_usd": round(float(synced.get("cash_usd") or 0.0), 2),
+            "cash_zwg": round(float(synced.get("cash_zwg") or 0.0), 2),
+        }
+
+    def accounts_status(self) -> dict[str, Any]:
+        """Return redacted connection, MFA, and balance metadata for all 3 portals."""
+        return {
+            prov: self._provider_status(prov)
+            for prov in ("ctrade", "vfex_direct", "zse_direct")
+        }
+
+    def ctrade_status(self) -> dict[str, Any]:
+        return self._provider_status("ctrade")
+
+    def ctrade_logout(self) -> None:
+        self.portal_logout("ctrade")
+
+    def portal_logout(self, provider: str) -> None:
+        if provider == "ctrade" and self.ctrade_file.exists():
+            self.ctrade_file.unlink()
+        accounts = self._load_accounts()
+        accounts.pop(provider, None)
+        self._save_accounts(accounts)
+        if provider == "ctrade":
+            self.state.pop("ctrade_account", None)
+        self.state.setdefault("synced_accounts", {}).pop(provider, None)
+        self.save()
+
+    @staticmethod
+    def _voms_request(url: str, method: str = "GET", body: dict[str, Any] | None = None, token: str | None = None) -> Any:
+        headers = {"Accept": "application/json", "User-Agent": "omarchy-VFEX-Direct/0.1"}
+        raw_body = None
+        if body is not None:
+            raw_body = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        req = urllib.request.Request(url, data=raw_body, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            err_txt = exc.read().decode("utf-8", "ignore")
+            try:
+                err_json = json.loads(err_txt)
+                msg = err_json.get("message") or err_txt
+            except json.JSONDecodeError:
+                msg = err_txt
+            raise ValueError(f"HTTP {exc.code}: {str(msg)[:140]}") from exc
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            raise ValueError(f"Network error: {exc}") from exc
+
+    @staticmethod
+    def _extract_voms_rows(payload: Any) -> list[dict[str, Any]]:
+        if isinstance(payload, list):
+            return [r for r in payload if isinstance(r, dict)]
+        if isinstance(payload, dict):
+            data = payload.get("data", payload)
+            if isinstance(data, list):
+                return [r for r in data if isinstance(r, dict)]
+            if isinstance(data, dict):
+                for key in ("holdings", "items", "positions", "portfolio", "wallets", "content"):
+                    val = data.get(key)
+                    if isinstance(val, list):
+                        return [r for r in val if isinstance(r, dict)]
+        return []
+
+    def _voms_sync_with_token(self, provider: str, token: str, base_url: str | None = None) -> dict[str, Any]:
+        cfg = VOMS_PROVIDERS[provider]
+        base = base_url or cfg["base_url"]
+        cur_default = cfg["currency"]
+        strip_vx = bool(cfg["strip_vx"])
+        title = cfg["title"]
+
+        holdings: list[dict[str, Any]] = []
+        for ep in ("/voms/portfolios", "/voms/portfolio", "/voms/holdings", "/portfolio"):
+            try:
+                payload = self._voms_request(f"{base}{ep}", method="GET", token=token)
+                rows = self._extract_voms_rows(payload)
+                for r in rows:
+                    raw_sym = str(r.get("symbol") or r.get("ticker") or r.get("counter") or "").strip().upper()
+                    if not raw_sym:
+                        continue
+                    sym = raw_sym[:-3] if (strip_vx and raw_sym.endswith(".VX")) else raw_sym
+                    qty = _safe_float(r.get("quantity") or r.get("shares") or r.get("totalUnits") or r.get("units") or r.get("balance") or r.get("availableQuantity"))
+                    avg = _safe_float(r.get("averagePrice") or r.get("avgCost") or r.get("averageCost") or r.get("costPrice") or r.get("currentPrice")) or self.get_price(sym) or 0.0
+                    cur = str(r.get("currency") or cur_default).upper()
+                    if cur not in ("USD", "ZWG"):
+                        cur = cur_default
+                    if qty and qty > 0:
+                        holdings.append({"symbol": sym, "shares": round(qty, 6), "avg_cost": round(avg, 4), "currency": cur})
+                        if sym not in self.state["watchlist"]:
+                            self.state["watchlist"].append(sym)
+                break
+            except ValueError as exc:
+                if "HTTP 401" in str(exc):
+                    raise
+                continue
+
+        cash_usd = 0.0
+        cash_zwg = 0.0
+        for wep in ("/voms/wallet", "/voms/wallets", "/wallet", "/wallets"):
+            try:
+                wpayload = self._voms_request(f"{base}{wep}", method="GET", token=token)
+                wdata = wpayload.get("data", wpayload) if isinstance(wpayload, dict) else wpayload
+                wrows = [wdata] if isinstance(wdata, dict) and any(k in wdata for k in ("balance", "availableBalance", "cashBalance")) else self._extract_voms_rows(wpayload)
+                for w in wrows:
+                    bal = _safe_float(w.get("availableBalance") or w.get("cashBalance") or w.get("balance") or w.get("amount"))
+                    if bal is None:
+                        continue
+                    wcur = str(w.get("currency") or w.get("currencyCode") or cur_default).upper()
+                    if wcur in ("ZWG", "ZWL", "ZIG"):
+                        cash_zwg += bal
+                    else:
+                        cash_usd += bal
+                if wrows:
+                    break
+            except ValueError:
+                continue
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        self.state.setdefault("synced_accounts", {})[provider] = {
+            "holdings": holdings,
+            "cash_usd": round(cash_usd, 2),
+            "cash_zwg": round(cash_zwg, 2),
+            "last_sync": now_iso,
+        }
+        self.save()
+        cash_part = f", cash {format_money(cash_zwg if cur_default == 'ZWG' else cash_usd, cur_default, 2)}"
+        return {
+            "ok": True,
+            "provider": provider,
+            "holdings_synced": len(holdings),
+            "cash_usd": round(cash_usd, 2),
+            "cash_zwg": round(cash_zwg, 2),
+            "message": f"Synced {title}: {len(holdings)} holding(s){cash_part}.",
+        }
+
+    def portal_login(
+        self,
+        provider: str,
+        email: str | None = None,
+        password: str | None = None,
+        base_url: str | None = None,
+    ) -> dict[str, Any]:
+        """Log into ctrade, vfex_direct, or zse_direct (handles VOMS MFA OTP challenge)."""
+        if provider == "ctrade":
+            return self.ctrade_login_and_sync(email=email, password=password, base_url=base_url or CTRADE_BASE_URL)
+        if provider not in VOMS_PROVIDERS:
+            raise ValueError(f"Unknown provider: {provider}")
+
+        cfg = VOMS_PROVIDERS[provider]
+        base = base_url or cfg["base_url"]
+        accounts = self._load_accounts()
+        saved = accounts.get(provider) or {}
+        em = (email or saved.get("email") or "").strip()
+        pw = password if password is not None else saved.get("password")
+        if not em or not pw:
+            raise ValueError(f"{cfg['title']} email and password required.")
+
+        resp = self._voms_request(f"{base}/auth/login", method="POST", body={"email": em, "password": pw})
+        data = resp.get("data") if isinstance(resp, dict) else None
+        if not isinstance(data, dict):
+            raise ValueError(str(resp.get("message") if isinstance(resp, dict) else "Login rejected."))
+
+        if data.get("requiresMfa") and data.get("mfaToken"):
+            accounts[provider] = {
+                **saved,
+                "email": em,
+                "password": pw,
+                "mfa_pending": True,
+                "mfa_token": str(data["mfaToken"]),
+                "mfa_message": str(data.get("message") or "Enter 6-digit OTP code"),
+            }
+            self._save_accounts(accounts)
+            return {
+                "ok": True,
+                "requires_mfa": True,
+                "provider": provider,
+                "message": f"{cfg['title']}: 6-digit OTP sent — enter code to verify.",
+            }
+
+        token = data.get("accessToken")
+        if not token:
+            raise ValueError(f"{cfg['title']}: no accessToken or MFA token returned.")
+        accounts[provider] = {
+            "email": em,
+            "password": pw,
+            "access_token": str(token),
+            "mfa_pending": False,
+        }
+        self._save_accounts(accounts)
+        return self._voms_sync_with_token(provider, str(token), base_url=base)
+
+    def portal_verify_mfa(self, provider: str, code: str, base_url: str | None = None) -> dict[str, Any]:
+        """Submit 6-digit OTP verification code for vfex_direct or zse_direct and sync portfolio."""
+        if provider not in VOMS_PROVIDERS:
+            raise ValueError(f"MFA is only used for vfex_direct or zse_direct, not {provider}.")
+        clean_code = code.strip()
+        if not clean_code.isdigit() or len(clean_code) != 6:
+            raise ValueError("Verification code must be exactly 6 digits.")
+        cfg = VOMS_PROVIDERS[provider]
+        base = base_url or cfg["base_url"]
+        accounts = self._load_accounts()
+        saved = accounts.get(provider) or {}
+        mfa_token = str(saved.get("mfa_token") or "")
+        if not mfa_token:
+            raise ValueError(f"{cfg['title']}: no pending MFA session. Connect with email & password first.")
+
+        resp = self._voms_request(f"{base}/auth/verify-mfa", method="POST", body={"mfaToken": mfa_token, "code": clean_code})
+        data = resp.get("data") if isinstance(resp, dict) else None
+        token = data.get("accessToken") if isinstance(data, dict) else None
+        if not token:
+            raise ValueError(str(resp.get("message") if isinstance(resp, dict) else "MFA verification failed."))
+
+        accounts[provider] = {
+            "email": saved.get("email", ""),
+            "password": saved.get("password", ""),
+            "access_token": str(token),
+            "mfa_pending": False,
+        }
+        self._save_accounts(accounts)
+        return self._voms_sync_with_token(provider, str(token), base_url=base)
+
+    def portal_sync(self, provider: str = "all") -> dict[str, Any]:
+        """Sync one connected portal or all connected portals."""
+        targets = ["ctrade", "vfex_direct", "zse_direct"] if provider == "all" else [provider]
+        accounts = self._load_accounts()
+        synced_msgs: list[str] = []
+        for prov in targets:
+            saved = accounts.get(prov) or {}
+            if prov == "ctrade":
+                if saved.get("email") and saved.get("password"):
+                    res = self.ctrade_login_and_sync()
+                    synced_msgs.append(res["message"])
+            elif prov in VOMS_PROVIDERS:
+                tok = saved.get("access_token")
+                if tok:
+                    try:
+                        res = self._voms_sync_with_token(prov, str(tok))
+                        synced_msgs.append(res["message"])
+                    except ValueError as exc:
+                        if "HTTP 401" in str(exc) and saved.get("email") and saved.get("password"):
+                            res = self.portal_login(prov)
+                            synced_msgs.append(res["message"])
+                        else:
+                            raise
+        if not synced_msgs:
+            raise ValueError("No connected accounts ready to sync.")
+        return {"ok": True, "message": " | ".join(synced_msgs)}
+
+    def ctrade_login_and_sync(
+        self,
+        email: str | None = None,
+        password: str | None = None,
+        sync_portfolio: bool = True,
+        base_url: str = CTRADE_BASE_URL,
+    ) -> dict[str, Any]:
+        """Authenticate against C-TRADE portal and sync holdings (storing creds 0600 locally only on success)."""
+        saved = self._load_ctrade_creds()
+        em = (email or saved.get("email") or "").strip()
+        pw = password if password is not None else saved.get("password")
+        if not em or not pw:
+            raise ValueError("C-TRADE email and password required.")
+
+        jar = http.cookiejar.CookieJar()
+        opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+        login_req = urllib.request.Request(
+            f"{base_url}/api/auth/login",
+            data=json.dumps({"Email": em, "Password": pw}).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Accept": "application/json", "User-Agent": "omarchy-VFEX-Direct/0.1"},
+            method="POST",
+        )
+        try:
+            with opener.open(login_req, timeout=15) as resp:
+                auth_payload = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            err_body = exc.read().decode("utf-8", "ignore")
+            raise ValueError(f"C-TRADE login failed (HTTP {exc.code}): {err_body[:120]}") from exc
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+            raise ValueError(f"Could not reach C-TRADE login ({exc}).") from exc
+
+        if not auth_payload.get("success") or not isinstance(auth_payload.get("data"), dict):
+            msg = auth_payload.get("message") or "Invalid C-TRADE credentials or login rejected."
+            raise ValueError(str(msg))
+
+        user_data = auth_payload["data"]
+        cds = str(user_data.get("cdsNumber") or user_data.get("cds_number") or "")
+        self._save_ctrade_creds({"email": em, "password": pw, "cds_number": cds})
+
+        imported_holdings: list[dict[str, Any]] = []
+        if sync_portfolio and cds:
+            for endpoint, default_cur, strip_vx in (
+                ("PortfolioByTypeVFEX", "USD", True),
+                ("PortfolioByType", "ZWG", False),
+            ):
+                q = urllib.parse.urlencode({"cdsNumber": cds, "type": "equity"})
+                p_req = urllib.request.Request(
+                    f"{base_url}/api/mobile-proxy/{endpoint}?{q}",
+                    headers={"Accept": "application/json", "User-Agent": "omarchy-VFEX-Direct/0.1"},
+                )
+                try:
+                    with opener.open(p_req, timeout=15) as presp:
+                        pdata = json.loads(presp.read().decode("utf-8"))
+                    rows = pdata if isinstance(pdata, list) else (pdata.get("data") if isinstance(pdata, dict) else [])
+                    if isinstance(rows, list):
+                        for r in rows:
+                            if not isinstance(r, dict):
+                                continue
+                            raw_sym = str(r.get("counter") or r.get("symbol") or r.get("Ticker") or "").strip().upper()
+                            sym = raw_sym[:-3] if (strip_vx and raw_sym.endswith(".VX")) else raw_sym
+                            qty = _safe_float(r.get("total_units") or r.get("shares") or r.get("Quantity") or r.get("balance"))
+                            avg = _safe_float(r.get("average_price") or r.get("avg_price") or r.get("Current_price")) or self.get_price(sym) or 0.0
+                            if sym and qty and qty > 0:
+                                imported_holdings.append({
+                                    "symbol": sym,
+                                    "shares": round(qty, 6),
+                                    "avg_cost": round(avg, 4),
+                                    "currency": default_cur,
+                                })
+                                if sym not in self.state["watchlist"]:
+                                    self.state["watchlist"].append(sym)
+                except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError):
+                    continue
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+        self.state["ctrade_account"] = {
+            "email": em,
+            "cds_number": cds,
+            "last_sync": now_iso,
+            "holdings_count": len(imported_holdings),
+        }
+        self.state.setdefault("synced_accounts", {})["ctrade"] = {
+            "holdings": imported_holdings,
+            "cash_usd": 0.0,
+            "cash_zwg": 0.0,
+            "last_sync": now_iso,
+        }
+        self.save()
+        return {
+            "ok": True,
+            "cds_number": cds,
+            "email_masked": self._mask_email(em),
+            "holdings_synced": len(imported_holdings),
+            "message": f"Connected C-TRADE ({cds or self._mask_email(em)}); synced {len(imported_holdings)} holding(s).",
+        }
 
     def import_csv(self, csv_path: Path) -> int:
         """Import symbol,price rows from a VFEX Direct CSV export."""
@@ -978,13 +1953,21 @@ def format_waybar(store: VFEXStore) -> dict[str, str]:
     return {"text": text, "tooltip": "\n".join(tooltip_lines), "class": css_class}
 
 
-def format_panel_json(store: VFEXStore) -> dict[str, Any]:
+def format_panel_json(
+    store: VFEXStore,
+    include_zse: bool = True,
+    discount_pct: float = 3.0,
+    notify_signals: bool = False,
+) -> dict[str, Any]:
     """Build structured JSON for BarWidget.qml and Panel.qml."""
     fetch_res = fetch_vfex_prices(store, force=False)
     store.check_alerts(notify=True)
     wb = format_waybar(store)
     summary = store.portfolio_summary()
-    recs = {r["symbol"]: r for r in store.buy_recommendations()}
+    recs = {r["symbol"]: r for r in store.buy_recommendations(discount_pct=discount_pct)}
+    signals = store.trade_signals(discount_pct=discount_pct, include_zse=include_zse)
+    if notify_signals and get_market_status() == "Open":
+        store.notify_trade_signals(signals)
     watchlist_items = []
     history_map = store.state.get("history", {})
     for sym in store.state.get("watchlist", []):
@@ -994,7 +1977,7 @@ def format_panel_json(store: VFEXStore) -> dict[str, Any]:
             "symbol": sym,
             "currency": infer_currency(sym, p_entry),
             "price": store.get_price(sym),
-            "buy": sym in recs,
+            "buy": sym in recs or any(s["symbol"] == sym and s["action"] == "BUY" for s in signals),
             "history": hist,
             "candles": store.get_candles(sym),
             "change_pct": store.get_daily_change(sym),
@@ -1046,6 +2029,13 @@ def format_panel_json(store: VFEXStore) -> dict[str, Any]:
         "items": summary["items"],
         "watchlist": watchlist_items,
         "recommendations": list(recs.values()),
+        "signals": signals,
+        "top_signal": signals[0] if signals else None,
+        "account": store.ctrade_status(),
+        "accounts": store.accounts_status(),
+        "connected_count": sum(1 for v in store.accounts_status().values() if v.get("connected")),
+        "wallet_cash_usd": summary["wallet_cash_usd"],
+        "wallet_cash_zwg": summary["wallet_cash_zwg"],
         "alerts": [a["text"] for a in triggered_alerts],
         "triggered_alerts": triggered_alerts,
         "active_alerts": active_alerts,
@@ -1092,7 +2082,27 @@ def build_parser() -> argparse.ArgumentParser:
     p_alert.add_argument("target", nargs="?", type=float)
 
     sub.add_parser("waybar", help="Output Waybar JSON")
-    sub.add_parser("panel-json", help="Output structured JSON for Omarchy BarWidget/Panel")
+    p_panel = sub.add_parser("panel-json", help="Output structured JSON for Omarchy BarWidget/Panel")
+    p_panel.add_argument("--market", choices=["all", "vfex"], default="all", help="Signal scope (all=VFEX+ZSE, vfex=VFEX USD only)")
+    p_panel.add_argument("--discount", type=float, default=3.0, help="Pullback discount threshold pct")
+    p_panel.add_argument("--notify-signals", action="store_true", help="Send notify-send alerts for top market-hours trade signals")
+
+    p_signals = sub.add_parser("signals", help="Show ranked BUY/SELL trade opportunities")
+    p_signals.add_argument("--market", choices=["all", "vfex"], default="all")
+    p_signals.add_argument("--discount", type=float, default=3.0)
+    p_signals.add_argument("--json", action="store_true")
+
+    p_ctrade = sub.add_parser("ctrade", help="Manage local C-TRADE account login and portfolio sync")
+    p_ctrade.add_argument("action", choices=["login", "sync", "status", "logout"])
+    p_ctrade.add_argument("--email", default=None)
+    p_ctrade.add_argument("--password-stdin", action="store_true", help="Read password securely from stdin")
+
+    p_acct = sub.add_parser("account", help="Manage local credentials & sync for C-TRADE, VFEX Direct, and ZSE Direct")
+    p_acct.add_argument("action", choices=["login", "verify-mfa", "sync", "status", "logout"])
+    p_acct.add_argument("--provider", choices=["ctrade", "vfex_direct", "zse_direct", "all"], default="ctrade")
+    p_acct.add_argument("--email", default=None)
+    p_acct.add_argument("--code", default=None, help="6-digit OTP verification code for VFEX/ZSE Direct")
+    p_acct.add_argument("--password-stdin", action="store_true", help="Read password securely from stdin")
     sub.add_parser("recommend", help="Show BUY recommendations based on 30d avg and targets")
     p_import = sub.add_parser("import", help="Import prices from a CSV file (symbol,price)")
     p_import.add_argument("file", help="Path to CSV file")
@@ -1204,7 +2214,62 @@ def _dispatch(args: argparse.Namespace, store: VFEXStore) -> int:
     elif args.command == "waybar":
         print(json.dumps(format_waybar(store)))
     elif args.command == "panel-json":
-        print(json.dumps(format_panel_json(store)))
+        print(json.dumps(format_panel_json(
+            store,
+            include_zse=(args.market == "all"),
+            discount_pct=args.discount,
+            notify_signals=args.notify_signals,
+        )))
+    elif args.command == "signals":
+        sigs = store.trade_signals(discount_pct=args.discount, include_zse=(args.market == "all"))
+        if args.json:
+            print(json.dumps(sigs))
+        elif not sigs:
+            print("No trade signals right now.")
+        else:
+            for s in sigs:
+                print(f"[{s['score']}] {s['action']:<4} {s['symbol']:<8} {format_money(s['price'], s['currency'], 4)} ({', '.join(s['reasons'])})")
+    elif args.command == "ctrade":
+        if args.action == "status":
+            print(json.dumps(store.ctrade_status()))
+        elif args.action == "logout":
+            store.ctrade_logout()
+            print("Disconnected C-TRADE account and removed saved credentials.")
+        elif args.action == "sync":
+            res = store.ctrade_login_and_sync()
+            print(res["message"])
+        elif args.action == "login":
+            pw = sys.stdin.readline().rstrip("\r\n") if args.password_stdin else None
+            if pw == "":
+                pw = None
+            res = store.ctrade_login_and_sync(email=args.email, password=pw)
+            print(res["message"])
+    elif args.command == "account":
+        prov = args.provider
+        if args.action == "status":
+            print(json.dumps(store.accounts_status()))
+        elif args.action == "logout":
+            if prov == "all":
+                for p in ("ctrade", "vfex_direct", "zse_direct"):
+                    store.portal_logout(p)
+                print("Disconnected all saved accounts.")
+            else:
+                store.portal_logout(prov)
+                print(f"Disconnected {PORTAL_LABELS.get(prov, prov)}.")
+        elif args.action == "sync":
+            res = store.portal_sync(provider=prov)
+            print(res["message"])
+        elif args.action == "verify-mfa":
+            if not args.code:
+                raise ValueError("--code is required for verify-mfa.")
+            res = store.portal_verify_mfa(prov, args.code)
+            print(res["message"])
+        elif args.action == "login":
+            pw = sys.stdin.readline().rstrip("\r\n") if args.password_stdin else None
+            if pw == "":
+                pw = None
+            res = store.portal_login(prov, email=args.email, password=pw)
+            print(res["message"])
     elif args.command == "recommend":
         recs = store.buy_recommendations()
         if not recs:

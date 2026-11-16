@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from datetime import datetime, timezone
@@ -285,6 +286,127 @@ class TestVFEXStore(unittest.TestCase):
         self.assertAlmostEqual(wl["INFR"]["spread"], 0.0280)
         self.assertEqual(wl["AFDS.ZW"]["currency"], "ZWG")
         self.assertIn("AFDS.ZW", panel["zse_symbols"])
+
+    def test_trade_signals_settings_cli_and_ctrade_storage(self) -> None:
+        from vfex import _ingest_ctrade_rows
+        self.store.state["history"]["SCIL"] = [
+            {"date": "2026-11-10", "price": 0.40},
+            {"date": "2026-11-11", "price": 0.40},
+        ]
+        _ingest_ctrade_rows(self.store, [{
+            "Ticker": "SCIL.VX",
+            "Current_price": "0.36",
+            "PrevPrice": "0.40",
+            "PrevPer": "-10.0",
+            "Best_bid": "0.3550",
+            "Best_Ask": "0.3600",
+            "Bid_Volume": "1000",
+            "Ask_Volume": "100",
+        }], "USD", True, "2026-11-16", set())
+        _ingest_ctrade_rows(self.store, [{
+            "Ticker": "ARIS.ZW",
+            "Current_price": "0.10",
+            "PrevPrice": "0.12",
+            "PrevPer": "-16.6",
+            "Best_bid": "0.095",
+            "Best_Ask": "0.100",
+            "Bid_Volume": "500",
+            "Ask_Volume": "50",
+        }], "ZWG", False, "2026-11-16", set())
+
+        self.store.buy("INFR", 100, 0.20, date="2026-11-01")
+        self.store.set_price("INFR", 0.25, date="2026-11-16")
+
+        vfex_only = self.store.trade_signals(discount_pct=3.0, include_zse=False)
+        syms_vfex = {s["symbol"] for s in vfex_only}
+        self.assertIn("SCIL", syms_vfex)
+        self.assertIn("INFR", syms_vfex)  # +25% gain triggers SELL profit-take signal
+        self.assertNotIn("ARIS.ZW", syms_vfex)
+
+        all_sigs = self.store.trade_signals(discount_pct=3.0, include_zse=True)
+        self.assertIn("ARIS.ZW", {s["symbol"] for s in all_sigs})
+
+        # Deduplicated daily notifications
+        sent1 = self.store.notify_trade_signals(all_sigs)
+        sent2 = self.store.notify_trade_signals(all_sigs)
+        self.assertTrue(len(sent1) >= 1)
+        self.assertEqual(sent2, [])
+
+        # C-TRADE local credential helper stores 0600 and masks email
+        self.store._save_ctrade_creds({"email": "trader@example.com", "password": "secret"})
+        mode = self.store.ctrade_file.stat().st_mode & 0o777
+        self.assertEqual(mode, 0o600)
+        st = self.store.ctrade_status()
+        self.assertTrue(st["connected"])
+        self.assertEqual(st["email_masked"], "tr***@example.com")
+        self.assertNotIn("secret", json.dumps(st))
+        self.store.ctrade_logout()
+        self.assertFalse(self.store.ctrade_status()["connected"])
+
+        parser = build_parser()
+        pargs = parser.parse_args(["panel-json", "--market", "vfex", "--discount", "5", "--notify-signals"])
+        self.assertEqual(pargs.market, "vfex")
+        self.assertEqual(pargs.discount, 5.0)
+        self.assertTrue(pargs.notify_signals)
+
+    def test_multi_portal_accounts_mfa_and_wallet_reconciliation(self) -> None:
+        # Manual lot + synced VFEX-D & ZSE-D holdings + wallet cash reconcile cleanly
+        self.store.buy("INFR", 10, 0.20, date="2026-10-09")
+        self.store.set_price("INFR", 0.25, date="2026-11-16")
+        self.store.set_price("AXIA", 0.18, date="2026-11-16")
+        self.store.set_price("AFDS.ZW", 20.0, currency="ZWG", date="2026-11-16")
+
+        self.store._save_accounts({
+            "vfex_direct": {"email": "user@example.com", "password": "pw", "mfa_pending": True, "mfa_token": "tok123", "access_token": ""},
+            "zse_direct": {"email": "zse@example.com", "password": "pw", "access_token": "jwt-zse", "mfa_pending": False},
+        })
+        self.assertEqual(self.store.accounts_file.stat().st_mode & 0o777, 0o600)
+
+        with self.assertRaises(ValueError):
+            self.store.portal_verify_mfa("vfex_direct", "abc")  # must be 6 digits
+
+        self.store.state["synced_accounts"] = {
+            "vfex_direct": {
+                "holdings": [{"symbol": "AXIA", "shares": 100, "avg_cost": 0.15, "currency": "USD"}],
+                "cash_usd": 12.50,
+                "cash_zwg": 0.0,
+                "last_sync": "2026-11-16T10:00:00+00:00",
+            },
+            "zse_direct": {
+                "holdings": [{"symbol": "AFDS.ZW", "shares": 5, "avg_cost": 18.0, "currency": "ZWG"}],
+                "cash_usd": 0.0,
+                "cash_zwg": 240.0,
+                "last_sync": "2026-11-16T10:00:00+00:00",
+            },
+        }
+        self.store.state["last_fetch_at"] = datetime.now(timezone.utc).isoformat()
+
+        summary = self.store.portfolio_summary()
+        self.assertEqual(len(summary["items"]), 3)
+        by_tag = {(i["symbol"], i["source_tag"]): i for i in summary["items"]}
+        self.assertIn(("INFR", "Manual"), by_tag)
+        self.assertIn(("AXIA", "VFEX-D"), by_tag)
+        self.assertIn(("AFDS.ZW", "ZSE-D"), by_tag)
+        self.assertAlmostEqual(summary["wallet_cash_usd"], 12.50)
+        self.assertAlmostEqual(summary["wallet_cash_zwg"], 240.0)
+        # USD total = INFR ($2.50) + AXIA ($18.00) = $20.50 (excluding AFDS.ZW ZWG)
+        self.assertAlmostEqual(summary["total_value"], 20.50)
+        self.assertAlmostEqual(summary["zwg_value"], 100.0)
+
+        panel = format_panel_json(self.store)
+        self.assertTrue(panel["accounts"]["vfex_direct"]["mfa_pending"])
+        self.assertTrue(panel["accounts"]["zse_direct"]["connected"])
+        self.assertEqual(panel["connected_count"], 1)
+        self.assertAlmostEqual(panel["wallet_cash_usd"], 12.50)
+        self.assertAlmostEqual(panel["wallet_cash_zwg"], 240.0)
+
+        self.store.portal_logout("vfex_direct")
+        self.assertFalse(self.store.accounts_status()["vfex_direct"]["mfa_pending"])
+
+        parser = build_parser()
+        a1 = parser.parse_args(["account", "verify-mfa", "--provider", "vfex_direct", "--code", "123456"])
+        self.assertEqual(a1.provider, "vfex_direct")
+        self.assertEqual(a1.code, "123456")
 
 
 if __name__ == "__main__":

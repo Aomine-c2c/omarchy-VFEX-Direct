@@ -13,7 +13,70 @@ BarWidget {
 
     property string barText: "VFEX --"
     property string tooltipBody: "VFEX Direct — Click to open portfolio & watchlist"
-    property var summaryData: ({ text: "VFEX --", tooltip: "", class: "neutral" })
+    property var summaryData: ({ text: "VFEX --", tooltip: "", class: "neutral", watchlist: [], signals: [] })
+    property int rotIndex: 0
+
+    readonly property string cfgBarMode: String(root.setting("barMode", "Rotating"))
+    readonly property int cfgRotSec: Math.max(2, Number(root.setting("rotationIntervalSec", 5)))
+    readonly property int cfgRefreshSec: Math.max(30, Number(root.setting("refreshIntervalSec", 60)))
+    readonly property bool cfgWideLayout: String(root.setting("panelLayout", "Dashboard (Wide)")) !== "Compact"
+    readonly property string cfgSignalMarket: String(root.setting("signalMarket", "VFEX + ZSE")) === "VFEX Only" ? "vfex" : "all"
+    readonly property int cfgDiscountPct: Math.max(1, Number(root.setting("discountPct", 3)))
+    readonly property bool cfgNotifySignals: root.setting("notifySignals", true) === true
+
+    function panelJsonCmd() {
+        var cmd = [
+            "python3",
+            Qt.resolvedUrl("vfex.py").toString().replace("file://", ""),
+            "panel-json",
+            "--market", root.cfgSignalMarket,
+            "--discount", String(root.cfgDiscountPct)
+        ]
+        if (root.cfgNotifySignals) cmd.push("--notify-signals")
+        return cmd
+    }
+
+    function fmtWatchTicker(item) {
+        if (!item) return ""
+        var pref = item.currency === "ZWG" ? "ZiG " : "$"
+        var p = (item.price !== null && item.price !== undefined) ? (pref + Number(item.price).toFixed(4)) : "--"
+        var c = (item.change_pct !== null && item.change_pct !== undefined)
+            ? (" " + (Number(item.change_pct) >= 0 ? "▲+" : "▼") + Number(item.change_pct).toFixed(1) + "%")
+            : ""
+        return item.symbol + " " + p + c
+    }
+
+    function updateBarDisplay() {
+        var d = root.summaryData || ({})
+        var alerts = d.alerts || []
+        var sigs = d.signals || []
+        var prefix = alerts.length > 0 ? "⚠ " : (d.market_status === "Open" ? "● " : "")
+        var baseText = d.text || "VFEX --"
+
+        if (root.cfgBarMode === "Compact") {
+            root.barText = prefix + baseText
+            return
+        }
+        if (root.cfgBarMode === "Portfolio") {
+            var sigSuffix = sigs.length > 0 ? (" • ★" + sigs.length) : ""
+            root.barText = prefix + baseText + sigSuffix
+            return
+        }
+
+        // Rotating mode: cycle Portfolio -> Watched quotes -> Top Signal
+        var frames = [baseText]
+        var wl = d.watchlist || []
+        for (var i = 0; i < wl.length; i++) {
+            frames.push(root.fmtWatchTicker(wl[i]))
+        }
+        if (sigs.length > 0) {
+            var top = sigs[0]
+            var more = sigs.length > 1 ? (" (+" + (sigs.length - 1) + ")") : ""
+            frames.push("★ " + top.action + " " + top.symbol + more)
+        }
+        var idx = frames.length > 0 ? (root.rotIndex % frames.length) : 0
+        root.barText = prefix + frames[idx]
+    }
 
     function open() {
         if (panelLoader.item) panelLoader.item.open()
@@ -36,6 +99,7 @@ BarWidget {
             if (!fetchProc.running) fetchProc.running = true
             return
         }
+        vfexProc.command = root.panelJsonCmd()
         if (!vfexProc.running) vfexProc.running = true
     }
 
@@ -45,24 +109,33 @@ BarWidget {
         panelLoader.item.anchorItem = button
         panelLoader.item.hostWidget = root
         panelLoader.item.summaryData = root.summaryData
+        panelLoader.item.wideLayout = root.cfgWideLayout
     }
 
     implicitWidth: button.implicitWidth
     implicitHeight: button.implicitHeight
     onBarChanged: injectPanel()
+    onSettingsChanged: {
+        root.injectPanel()
+        root.updateBarDisplay()
+        root.refresh(false)
+    }
+    onCfgWideLayoutChanged: injectPanel()
+    onCfgBarModeChanged: updateBarDisplay()
 
     Process {
         id: fetchProc
         command: ["python3", Qt.resolvedUrl("vfex.py").toString().replace("file://", ""), "fetch"]
         running: false
         onExited: function() {
+            vfexProc.command = root.panelJsonCmd()
             if (!vfexProc.running) vfexProc.running = true
         }
     }
 
     Process {
         id: vfexProc
-        command: ["python3", Qt.resolvedUrl("vfex.py").toString().replace("file://", ""), "panel-json"]
+        command: root.panelJsonCmd()
         running: true
         stdout: SplitParser {
             onRead: function(data) {
@@ -70,10 +143,21 @@ BarWidget {
                     var parsed = JSON.parse(data)
                     root.summaryData = parsed
                     var alerts = parsed.alerts || []
-                    var prefix = alerts.length > 0 ? "⚠ " : (parsed.market_status === "Open" ? "● " : "")
-                    root.barText = prefix + (parsed.text || "VFEX --")
-                    root.tooltipBody = (alerts.length > 0 ? ("Alerts:\n" + alerts.join("\n") + "\n\n") : "") + (parsed.tooltip || "VFEX Direct")
-                    if (panelLoader.item) panelLoader.item.summaryData = parsed
+                    var sigs = parsed.signals || []
+                    var sigTip = ""
+                    if (sigs.length > 0) {
+                        var slines = []
+                        for (var si = 0; si < Math.min(3, sigs.length); si++) {
+                            slines.push("  " + sigs[si].headline)
+                        }
+                        sigTip = "\n\nTop Trade Signals:\n" + slines.join("\n")
+                    }
+                    root.tooltipBody = (alerts.length > 0 ? ("Alerts:\n" + alerts.join("\n") + "\n\n") : "") + (parsed.tooltip || "VFEX Direct") + sigTip
+                    root.updateBarDisplay()
+                    if (panelLoader.item) {
+                        panelLoader.item.summaryData = parsed
+                        panelLoader.item.wideLayout = root.cfgWideLayout
+                    }
                 } catch (e) {
                 }
             }
@@ -81,10 +165,20 @@ BarWidget {
     }
 
     Timer {
-        interval: 60000
+        interval: root.cfgRefreshSec * 1000
         running: true
         repeat: true
-        onTriggered: root.refresh()
+        onTriggered: root.refresh(false)
+    }
+
+    Timer {
+        interval: root.cfgRotSec * 1000
+        running: root.cfgBarMode === "Rotating"
+        repeat: true
+        onTriggered: {
+            root.rotIndex = root.rotIndex + 1
+            root.updateBarDisplay()
+        }
     }
 
     Loader {

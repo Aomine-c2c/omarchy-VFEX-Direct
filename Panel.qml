@@ -21,6 +21,24 @@ Panel {
     property bool calendarOpen: false
     property int calYear: (new Date()).getFullYear()
     property int calMonth: (new Date()).getMonth()
+    property bool wideLayout: true
+    property bool accountDrawerOpen: false
+    property string activeProvider: "ctrade"
+    property string ctradeEmailText: ""
+    property string ctradePassText: ""
+    property string mfaOtpText: ""
+    property string ctradeStatusMessage: ""
+    property bool ctradeStatusError: false
+    property var ctradeStatusData: root.summaryData.account || ({})
+
+    function activeProviderInfo() {
+        var map = root.summaryData.accounts || ({})
+        return map[root.activeProvider] || ({})
+    }
+
+    function connectedPortalsCount() {
+        return Number(root.summaryData.connected_count || 0)
+    }
     property string symText: ""
     property string sharesText: ""
     property string priceText: ""
@@ -157,6 +175,19 @@ Panel {
         if (root.sharesInputRef) root.sharesInputRef.forceActiveFocus()
     }
 
+    function applySignal(sig) {
+        if (!sig) return
+        root.chartSymbol = sig.symbol
+        root.hoveredCandleIdx = -1
+        root.manualMode = sig.action === "SELL" ? "sell" : "buy"
+        root.statusMessage = ""
+        root.dcaPlanData = null
+        root.calendarOpen = false
+        root.symText = sig.symbol
+        root.priceText = Number(sig.limit_price || sig.price || 0).toFixed(4)
+        if (root.sharesInputRef) root.sharesInputRef.forceActiveFocus()
+    }
+
     function activeCandles() {
         if (!root.chartSymbol) return []
         var lists = [root.summaryData.watchlist || [], root.summaryData.items || []]
@@ -219,6 +250,48 @@ Panel {
                 root.pendingClearInputs = false
                 root.statusError = true
                 root.statusMessage = root.lastManualError ? root.lastManualError : ("Failed (code " + exitCode + ")")
+            }
+        }
+    }
+
+    Process {
+        id: ctradeProc
+        property string secret: ""
+        property string lastErr: ""
+        property string lastOut: ""
+        stdinEnabled: false
+        stdout: SplitParser {
+            onRead: function(line) {
+                var t = line.trim()
+                if (t) ctradeProc.lastOut = t
+            }
+        }
+        stderr: SplitParser {
+            onRead: function(line) {
+                var t = line.trim()
+                if (t) ctradeProc.lastErr = t
+            }
+        }
+        onStarted: {
+            if (stdinEnabled && secret.length > 0) {
+                write(secret + "\n")
+                secret = ""
+                stdinEnabled = false
+            }
+        }
+        onExited: function(exitCode) {
+            ctradeProc.secret = ""
+            ctradeProc.stdinEnabled = false
+            if (exitCode === 0) {
+                root.ctradePassText = ""
+                root.mfaOtpText = ""
+                root.ctradeStatusError = false
+                root.ctradeStatusMessage = ctradeProc.lastOut || "C-TRADE synced"
+                if (root.hostWidget && typeof root.hostWidget.refresh === "function")
+                    root.hostWidget.refresh()
+            } else {
+                root.ctradeStatusError = true
+                root.ctradeStatusMessage = ctradeProc.lastErr || ("Sync failed (code " + exitCode + ")")
             }
         }
     }
@@ -316,7 +389,7 @@ Panel {
         bar: root.bar
         open: root.opened
         focusTarget: panel.loadedContent
-        contentWidth: panel.fittedContentWidth(Style.space(390))
+        contentWidth: panel.fittedContentWidth(Style.space(root.wideLayout ? 690 : 390))
         contentHeight: panel.fittedContentHeight(panel.loadedContentHeight)
 
         content: PanelKeyCatcher {
@@ -338,16 +411,43 @@ Panel {
                     spacing: Style.space(8)
 
                     Text {
-                        text: "VFEX Direct (USD)"
+                        text: "VFEX Direct & C-TRADE"
                         color: "#cdd6f4"
                         font.family: root.bar ? root.bar.fontFamily : Style.font.family
                         font.pixelSize: Style.font.subtitle
                         font.bold: true
-                        width: parent.width - refreshBtn.width - Style.space(8)
+                        width: parent.width - acctToggleBtn.width - refreshBtn.width - Style.space(16)
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    Rectangle {
+                        id: acctToggleBtn
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: acctToggleTxt.implicitWidth + Style.space(12)
+                        height: acctToggleTxt.implicitHeight + Style.space(6)
+                        radius: 4
+                        color: root.accountDrawerOpen ? "#89b4fa" : "#313244"
+                        border.color: root.connectedPortalsCount() > 0 ? "#a6e3a1" : "#45475a"
+                        border.width: 1
+                        Text {
+                            id: acctToggleTxt
+                            anchors.centerIn: parent
+                            text: root.connectedPortalsCount() > 0 ? ("● " + root.connectedPortalsCount() + " Linked") : "⚙ Accounts"
+                            color: root.accountDrawerOpen ? "#1e1e2e" : (root.connectedPortalsCount() > 0 ? "#a6e3a1" : "#cdd6f4")
+                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                            font.pixelSize: Style.font.small || Style.font.body
+                            font.bold: true
+                        }
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: root.accountDrawerOpen = !root.accountDrawerOpen
+                        }
                     }
 
                     Text {
                         id: refreshBtn
+                        anchors.verticalCenter: parent.verticalCenter
                         readonly property bool busy: root.hostWidget && root.hostWidget.fetching === true
                         text: busy ? "↻ Syncing..." : "↻ Refresh"
                         color: busy ? "#a6adc8" : "#89b4fa"
@@ -388,10 +488,22 @@ Panel {
                     wrapMode: Text.WordWrap
                 }
 
+                Grid {
+                    id: mainGrid
+                    width: parent.width
+                    columns: root.wideLayout ? 2 : 1
+                    columnSpacing: Style.space(10)
+                    rowSpacing: Style.space(10)
+
+                    Column {
+                        id: leftPaneCol
+                        width: root.wideLayout ? (mainGrid.width - Style.space(10)) / 2 : mainGrid.width
+                        spacing: Style.space(10)
+
                 Rectangle {
                     id: portfolioCard
                     width: parent.width
-                    visible: (root.summaryData.items || []).length > 0
+                    visible: (root.summaryData.items || []).length > 0 || Number(root.summaryData.wallet_cash_usd || 0) > 0 || Number(root.summaryData.wallet_cash_zwg || 0) > 0
                     height: portfolioCol.implicitHeight + Style.space(16)
                     radius: 8
                     color: "#181825"
@@ -488,6 +600,23 @@ Panel {
                                 return "ZSE (ZWG): ZiG " + zv.toFixed(2) + " • Cost ZiG " + zc.toFixed(2) + " (" + root.fmtSignedMoney(zp, "ZWG") + " / " + (zpct >= 0 ? "+" : "") + zpct.toFixed(1) + "%)"
                             }
                             color: Number(root.summaryData.zwg_pnl || 0) >= 0 ? "#f9e2af" : "#f38ba8"
+                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                            font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Text {
+                            width: parent.width
+                            visible: Number(root.summaryData.wallet_cash_usd || 0) > 0 || Number(root.summaryData.wallet_cash_zwg || 0) > 0
+                            text: {
+                                var parts = []
+                                var u = Number(root.summaryData.wallet_cash_usd || 0)
+                                var z = Number(root.summaryData.wallet_cash_zwg || 0)
+                                if (u > 0) parts.push("$" + u.toFixed(2))
+                                if (z > 0) parts.push("ZiG " + z.toFixed(2))
+                                return "Wallet Cash: " + parts.join(" • ")
+                            }
+                            color: "#89dceb"
                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                             font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
                             wrapMode: Text.WordWrap
@@ -623,7 +752,8 @@ Panel {
                                         elide: Text.ElideRight
                                         text: {
                                             var lc = (modelData.lots || []).length
-                                            var prefix = lc > 0 ? ((holdingItemCol.lotsExpanded ? "▾ " : "▸ ") + lc + (lc === 1 ? " lot" : " lots") + " • ") : ""
+                                            var srcTag = modelData.is_synced ? ("[" + (modelData.source_tag || "SYNC") + "] ") : ""
+                                            var prefix = lc > 0 ? ((holdingItemCol.lotsExpanded ? "▾ " : "▸ ") + lc + (lc === 1 ? " lot" : " lots") + " • ") : srcTag
                                             var base = prefix + "avg " + root.fmtPrice(modelData.avg_cost || 0, modelData.currency) + " • Cost " + root.fmtShortMoney(modelData.cost !== undefined ? modelData.cost : (Number(modelData.shares || 0) * Number(modelData.avg_cost || 0)), modelData.currency)
                                             if (modelData.days_held !== null && modelData.days_held !== undefined)
                                                 base += " • " + modelData.days_held + "d"
@@ -849,6 +979,125 @@ Panel {
                         }
                     }
                 }
+
+                Rectangle {
+                    id: signalsCard
+                    width: parent.width
+                    visible: (root.summaryData.signals || []).length > 0
+                    height: signalsCol.implicitHeight + Style.space(16)
+                    radius: 8
+                    color: "#181825"
+                    border.color: "#313244"
+                    border.width: 1
+
+                    Column {
+                        id: signalsCol
+                        anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(8) }
+                        spacing: Style.space(5)
+
+                        Row {
+                            width: parent.width
+                            Text {
+                                width: parent.width * 0.72
+                                text: "Trade Signals (" + (root.summaryData.signals || []).length + ")"
+                                color: "#89b4fa"
+                                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                font.pixelSize: Style.font.body
+                                font.bold: true
+                            }
+                            Text {
+                                width: parent.width * 0.28
+                                horizontalAlignment: Text.AlignRight
+                                text: "Click to trade"
+                                color: "#6c7086"
+                                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
+                                anchors.verticalCenter: parent.verticalCenter
+                            }
+                        }
+
+                        Repeater {
+                            model: (root.summaryData.signals || []).slice(0, 6)
+                            delegate: Rectangle {
+                                width: signalsCol.width
+                                height: sigInnerCol.implicitHeight + Style.space(6)
+                                radius: 5
+                                color: sigHover.containsMouse ? "#242436" : "#11111b"
+                                border.color: modelData.action === "SELL" ? "#3d2229" : "#243b2c"
+                                border.width: 1
+
+                                MouseArea {
+                                    id: sigHover
+                                    anchors.fill: parent
+                                    hoverEnabled: true
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.applySignal(modelData)
+                                }
+
+                                Column {
+                                    id: sigInnerCol
+                                    anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; leftMargin: 6; rightMargin: 6 }
+                                    spacing: 2
+
+                                    Row {
+                                        width: parent.width
+                                        spacing: Style.space(5)
+                                        Rectangle {
+                                            width: sigActTxt.implicitWidth + 8
+                                            height: sigActTxt.implicitHeight + 3
+                                            radius: 3
+                                            color: modelData.action === "SELL" ? "#3d2229" : "#243b2c"
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            Text {
+                                                id: sigActTxt
+                                                anchors.centerIn: parent
+                                                text: modelData.action
+                                                color: modelData.action === "SELL" ? "#f38ba8" : "#a6e3a1"
+                                                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                                font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
+                                                font.bold: true
+                                            }
+                                        }
+                                        Text {
+                                            width: parent.width * 0.28
+                                            text: modelData.symbol
+                                            color: modelData.currency === "ZWG" ? "#f9e2af" : "#cdd6f4"
+                                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                            font.pixelSize: Style.font.small || Style.font.body
+                                            font.bold: true
+                                            elide: Text.ElideRight
+                                            anchors.verticalCenter: parent.verticalCenter
+                                        }
+                                        Text {
+                                            width: Math.max(40, parent.width - sigActTxt.implicitWidth - 8 - parent.width * 0.28 - Style.space(10))
+                                            horizontalAlignment: Text.AlignRight
+                                            text: root.fmtPrice(modelData.price, modelData.currency)
+                                            color: "#cdd6f4"
+                                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                            font.pixelSize: Style.font.small || Style.font.body
+                                            anchors.verticalCenter: parent.verticalCenter
+                                        }
+                                    }
+
+                                    Text {
+                                        width: parent.width
+                                        text: (modelData.reasons || []).join(" • ")
+                                        color: "#a6adc8"
+                                        font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                        font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
+                                        elide: Text.ElideRight
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                    }
+
+                    Column {
+                        id: rightPaneCol
+                        width: root.wideLayout ? (mainGrid.width - Style.space(10)) / 2 : mainGrid.width
+                        spacing: Style.space(10)
 
                 Rectangle {
                     id: watchlistCard
@@ -1173,7 +1422,7 @@ Panel {
                             width: parent.width
                             visible: {
                                 var q = root.activeQuote()
-                                return q && (Number(q.best_bid || 0) > 0 || Number(q.best_ask || 0) > 0)
+                                return Boolean(q && (Number(q.best_bid || 0) > 0 || Number(q.best_ask || 0) > 0))
                             }
                             height: depthStripRow.implicitHeight + Style.space(8)
                             radius: 5
@@ -2025,6 +2274,367 @@ Panel {
                             }
                         }
                     }
+                    }
+                }
+
+                Rectangle {
+                    id: accountSyncCard
+                    width: parent.width
+                    visible: root.accountDrawerOpen
+                    height: accountSyncCol.implicitHeight + Style.space(16)
+                    radius: 8
+                    color: "#181825"
+                    border.color: Boolean(root.activeProviderInfo().connected) ? "#a6e3a1" : (Boolean(root.activeProviderInfo().mfa_pending) ? "#f9e2af" : "#313244")
+                    border.width: 1
+
+                    Column {
+                        id: accountSyncCol
+                        anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(8) }
+                        spacing: Style.space(6)
+
+                        Row {
+                            width: parent.width
+                            Text {
+                                width: parent.width * 0.65
+                                text: "Portal Accounts Sync"
+                                color: "#cdd6f4"
+                                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                font.pixelSize: Style.font.body
+                                font.bold: true
+                            }
+                            Text {
+                                width: parent.width * 0.35
+                                horizontalAlignment: Text.AlignRight
+                                text: Boolean(root.activeProviderInfo().connected) ? "● Connected" : (Boolean(root.activeProviderInfo().mfa_pending) ? "◔ OTP Req" : "Local 0600")
+                                color: Boolean(root.activeProviderInfo().connected) ? "#a6e3a1" : (Boolean(root.activeProviderInfo().mfa_pending) ? "#f9e2af" : "#6c7086")
+                                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
+                            }
+                        }
+
+                        Grid {
+                            width: parent.width
+                            columns: 3
+                            columnSpacing: Style.space(4)
+                            Repeater {
+                                model: [
+                                    { key: "ctrade", label: "C-TRADE" },
+                                    { key: "vfex_direct", label: "VFEX Direct" },
+                                    { key: "zse_direct", label: "ZSE Direct" }
+                                ]
+                                delegate: Rectangle {
+                                    width: (accountSyncCol.width - Style.space(4) * 2) / 3
+                                    height: provTabTxt.implicitHeight + Style.space(6)
+                                    radius: 4
+                                    property var pInfo: ((root.summaryData.accounts || ({}))[modelData.key]) || ({})
+                                    color: root.activeProvider === modelData.key ? "#89b4fa" : "#313244"
+                                    border.color: Boolean(pInfo.connected) ? "#a6e3a1" : (Boolean(pInfo.mfa_pending) ? "#f9e2af" : "transparent")
+                                    border.width: (Boolean(pInfo.connected) || Boolean(pInfo.mfa_pending)) ? 1 : 0
+                                    Text {
+                                        id: provTabTxt
+                                        anchors.centerIn: parent
+                                        text: (Boolean(parent.pInfo.connected) ? "● " : (Boolean(parent.pInfo.mfa_pending) ? "◔ " : "")) + modelData.label
+                                        color: root.activeProvider === modelData.key ? "#1e1e2e" : (Boolean(parent.pInfo.connected) ? "#a6e3a1" : "#cdd6f4")
+                                        font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                        font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
+                                        font.bold: root.activeProvider === modelData.key
+                                    }
+                                    MouseArea {
+                                        anchors.fill: parent
+                                        cursorShape: Qt.PointingHandCursor
+                                        onClicked: {
+                                            root.activeProvider = modelData.key
+                                            root.ctradeStatusMessage = ""
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Text {
+                            width: parent.width
+                            visible: Boolean(root.activeProviderInfo().connected)
+                            text: {
+                                var a = root.activeProviderInfo()
+                                var cur = root.activeProvider === "zse_direct" ? "ZWG" : "USD"
+                                var cVal = root.activeProvider === "zse_direct" ? Number(a.cash_zwg || 0) : Number(a.cash_usd || 0)
+                                return "User: " + (a.email_masked || "") + (a.cds_number ? (" • CDS: " + a.cds_number) : "") + " • Holdings: " + (a.holdings_count || 0) + (cVal > 0 ? (" • Cash " + root.fmtShortMoney(cVal, cur)) : "")
+                            }
+                            color: "#a6adc8"
+                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                            font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
+                            wrapMode: Text.WordWrap
+                        }
+
+                        Rectangle {
+                            width: parent.width
+                            height: Style.space(26)
+                            radius: 4
+                            color: "#313244"
+                            border.color: ctradeEmailInput.activeFocus ? "#89b4fa" : "#45475a"
+                            border.width: 1
+
+                            TextInput {
+                                id: ctradeEmailInput
+                                anchors.fill: parent
+                                anchors.margins: Style.space(5)
+                                color: "#cdd6f4"
+                                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                font.pixelSize: Style.font.body
+                                verticalAlignment: TextInput.AlignVCenter
+                                clip: true
+                                Component.onCompleted: text = root.ctradeEmailText
+                                onTextChanged: if (root.ctradeEmailText !== text) root.ctradeEmailText = text
+                                Connections {
+                                    target: root
+                                    function onCtradeEmailTextChanged() {
+                                        if (ctradeEmailInput.text !== root.ctradeEmailText) ctradeEmailInput.text = root.ctradeEmailText
+                                    }
+                                }
+                                Text {
+                                    anchors.fill: parent
+                                    verticalAlignment: Text.AlignVCenter
+                                    text: "Portal Email"
+                                    color: "#6c7086"
+                                    font: ctradeEmailInput.font
+                                    visible: !ctradeEmailInput.text && !ctradeEmailInput.activeFocus
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            width: parent.width
+                            height: Style.space(26)
+                            radius: 4
+                            color: "#313244"
+                            border.color: ctradePassInput.activeFocus ? "#89b4fa" : "#45475a"
+                            border.width: 1
+
+                            TextInput {
+                                id: ctradePassInput
+                                anchors.fill: parent
+                                anchors.margins: Style.space(5)
+                                color: "#cdd6f4"
+                                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                font.pixelSize: Style.font.body
+                                verticalAlignment: TextInput.AlignVCenter
+                                echoMode: TextInput.Password
+                                clip: true
+                                Component.onCompleted: text = root.ctradePassText
+                                onTextChanged: if (root.ctradePassText !== text) root.ctradePassText = text
+                                Connections {
+                                    target: root
+                                    function onCtradePassTextChanged() {
+                                        if (ctradePassInput.text !== root.ctradePassText) ctradePassInput.text = root.ctradePassText
+                                    }
+                                }
+                                Text {
+                                    anchors.fill: parent
+                                    verticalAlignment: Text.AlignVCenter
+                                    text: "Portal Password (masked, saved 0600)"
+                                    color: "#6c7086"
+                                    font: ctradePassInput.font
+                                    visible: !ctradePassInput.text && !ctradePassInput.activeFocus
+                                }
+                            }
+                        }
+
+                        Row {
+                            width: parent.width
+                            visible: Boolean(root.activeProviderInfo().mfa_pending)
+                            spacing: Style.space(6)
+
+                            Rectangle {
+                                width: parent.width * 0.60
+                                height: Style.space(26)
+                                radius: 4
+                                color: "#313244"
+                                border.color: mfaOtpInput.activeFocus ? "#f9e2af" : "#45475a"
+                                border.width: 1
+
+                                TextInput {
+                                    id: mfaOtpInput
+                                    anchors.fill: parent
+                                    anchors.margins: Style.space(5)
+                                    color: "#cdd6f4"
+                                    font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                    font.pixelSize: Style.font.body
+                                    verticalAlignment: TextInput.AlignVCenter
+                                    clip: true
+                                    Component.onCompleted: text = root.mfaOtpText
+                                    onTextChanged: if (root.mfaOtpText !== text) root.mfaOtpText = text
+                                    Connections {
+                                        target: root
+                                        function onMfaOtpTextChanged() {
+                                            if (mfaOtpInput.text !== root.mfaOtpText) mfaOtpInput.text = root.mfaOtpText
+                                        }
+                                    }
+                                    Text {
+                                        anchors.fill: parent
+                                        verticalAlignment: Text.AlignVCenter
+                                        text: "6-digit OTP code"
+                                        color: "#f9e2af"
+                                        font: mfaOtpInput.font
+                                        visible: !mfaOtpInput.text && !mfaOtpInput.activeFocus
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                width: parent.width * 0.37
+                                height: Style.space(26)
+                                radius: 4
+                                color: ctradeProc.running ? "#45475a" : "#f9e2af"
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: ctradeProc.running ? "..." : "Verify OTP"
+                                    color: "#1e1e2e"
+                                    font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                    font.pixelSize: Style.font.small || Style.font.body
+                                    font.bold: true
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    enabled: !ctradeProc.running
+                                    onClicked: {
+                                        var code = root.mfaOtpText.trim()
+                                        if (!code) {
+                                            root.ctradeStatusError = true
+                                            root.ctradeStatusMessage = "Enter 6-digit OTP code"
+                                            return
+                                        }
+                                        var script = Qt.resolvedUrl("vfex.py").toString().replace("file://", "")
+                                        ctradeProc.stdinEnabled = false
+                                        ctradeProc.lastErr = ""
+                                        ctradeProc.lastOut = ""
+                                        ctradeProc.command = ["python3", script, "account", "verify-mfa", "--provider", root.activeProvider, "--code", code]
+                                        ctradeProc.running = true
+                                    }
+                                }
+                            }
+                        }
+
+                        Row {
+                            width: parent.width
+                            spacing: Style.space(4)
+
+                            Rectangle {
+                                property bool canSyncAll: root.connectedPortalsCount() > 0
+                                property bool canDisc: Boolean(root.activeProviderInfo().connected) || Boolean(root.activeProviderInfo().mfa_pending)
+                                width: canDisc ? (canSyncAll ? parent.width * 0.42 : parent.width * 0.62) : (canSyncAll ? parent.width * 0.62 : parent.width)
+                                height: Style.space(26)
+                                radius: 4
+                                color: ctradeProc.running ? "#45475a" : "#89b4fa"
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: ctradeProc.running ? "Working..." : ((root.ctradeEmailText.trim() && root.ctradePassText) ? "Connect" : (Boolean(root.activeProviderInfo().connected) ? "Sync" : "Connect"))
+                                    color: "#1e1e2e"
+                                    font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                    font.pixelSize: Style.font.small || Style.font.body
+                                    font.bold: true
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    enabled: !ctradeProc.running
+                                    onClicked: {
+                                        var em = root.ctradeEmailText.trim()
+                                        var pw = root.ctradePassText
+                                        var script = Qt.resolvedUrl("vfex.py").toString().replace("file://", "")
+                                        ctradeProc.lastErr = ""
+                                        ctradeProc.lastOut = ""
+                                        if (em && pw) {
+                                            ctradeProc.secret = pw
+                                            ctradeProc.stdinEnabled = true
+                                            ctradeProc.command = ["python3", script, "account", "login", "--provider", root.activeProvider, "--email", em, "--password-stdin"]
+                                            ctradeProc.running = true
+                                        } else if (Boolean(root.activeProviderInfo().connected)) {
+                                            ctradeProc.stdinEnabled = false
+                                            ctradeProc.command = ["python3", script, "account", "sync", "--provider", root.activeProvider]
+                                            ctradeProc.running = true
+                                        } else {
+                                            root.ctradeStatusError = true
+                                            root.ctradeStatusMessage = "Enter email and password"
+                                        }
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                visible: root.connectedPortalsCount() > 0
+                                width: (Boolean(root.activeProviderInfo().connected) || Boolean(root.activeProviderInfo().mfa_pending)) ? parent.width * 0.25 : parent.width * 0.35
+                                height: Style.space(26)
+                                radius: 4
+                                color: "#313244"
+                                border.color: "#a6e3a1"
+                                border.width: 1
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "Sync All"
+                                    color: "#a6e3a1"
+                                    font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                    font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
+                                    font.bold: true
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    enabled: !ctradeProc.running
+                                    onClicked: {
+                                        var script = Qt.resolvedUrl("vfex.py").toString().replace("file://", "")
+                                        ctradeProc.stdinEnabled = false
+                                        ctradeProc.lastErr = ""
+                                        ctradeProc.lastOut = ""
+                                        ctradeProc.command = ["python3", script, "account", "sync", "--provider", "all"]
+                                        ctradeProc.running = true
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                visible: Boolean(root.activeProviderInfo().connected) || Boolean(root.activeProviderInfo().mfa_pending)
+                                width: root.connectedPortalsCount() > 0 ? parent.width * 0.29 : parent.width * 0.35
+                                height: Style.space(26)
+                                radius: 4
+                                color: "#3d2229"
+                                border.color: "#f38ba8"
+                                border.width: 1
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "Disconnect"
+                                    color: "#f38ba8"
+                                    font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                    font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
+                                    font.bold: true
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    enabled: !ctradeProc.running
+                                    onClicked: {
+                                        var script = Qt.resolvedUrl("vfex.py").toString().replace("file://", "")
+                                        ctradeProc.stdinEnabled = false
+                                        ctradeProc.lastErr = ""
+                                        ctradeProc.lastOut = ""
+                                        ctradeProc.command = ["python3", script, "account", "logout", "--provider", root.activeProvider]
+                                        ctradeProc.running = true
+                                    }
+                                }
+                            }
+                        }
+
+                        Text {
+                            width: parent.width
+                            visible: root.ctradeStatusMessage.length > 0
+                            text: root.ctradeStatusMessage
+                            color: root.ctradeStatusError ? "#f38ba8" : "#a6e3a1"
+                            font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                            font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+                }
                     }
                 }
             }
