@@ -18,13 +18,18 @@ from typing import Any
 
 DEFAULT_CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "vfex-direct"
 
+VFEX_DIRECT_URL = "https://d3u8q0mxu6epjj.cloudfront.net/api/v1/voms/price-sheets/active"
+CTRADE_VFEX_URL = "https://ctradenew.ctrade.co.zw/api/web-proxy/online.ctrade_php/marketwatchvx.php"
+CTRADE_ZSE_URL = "https://ctradenew.ctrade.co.zw/api/mobile-proxy/marketwatchzsenew"
+
 # Common VFEX listed equities (USD-denominated)
 KNOWN_VFEX_SYMBOLS: dict[str, str] = {
     "ASUN": "African Sun Limited",
     "AXIA": "Axia Corporation Limited",
     "BIND": "Bindura Nickel Corporation",
     "CALD": "Caledonia Mining Corporation",
-    "ECO": "Econet Wireless Zimbabwe",
+    "CMCL": "Caledonia Mining Corporation",
+    "EAGLE": "Eagle REIT",
     "EDGR": "Edgars Stores Limited",
     "FCA": "First Capital Bank Limited",
     "INFR": "Econet Infrastructure Company Limited (InfraCo)",
@@ -36,6 +41,36 @@ KNOWN_VFEX_SYMBOLS: dict[str, str] = {
     "WTN": "WestProp Holdings Limited",
     "ZIMW": "Zimplow Holdings Limited",
 }
+
+
+def infer_currency(symbol: str, entry: dict[str, Any] | None = None) -> str:
+    """Return 'ZWG' for ZSE '.ZW' tickers or ZWG-tagged entries, else 'USD'."""
+    if entry and entry.get("currency") in ("USD", "ZWG"):
+        return str(entry["currency"])
+    return "ZWG" if symbol.upper().endswith(".ZW") else "USD"
+
+
+def format_money(amount: float, currency: str = "USD", decimals: int = 2) -> str:
+    """Format a monetary value in USD ($) or ZWG (ZiG)."""
+    prefix = "ZiG " if currency == "ZWG" else "$"
+    return f"{prefix}{amount:.{decimals}f}"
+
+
+def _safe_float(val: Any) -> float | None:
+    if val is None:
+        return None
+    s = str(val).strip().replace(",", "")
+    if not s:
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def _safe_int(val: Any) -> int | None:
+    f = _safe_float(val)
+    return int(round(f)) if f is not None else None
 
 
 class VFEXStore:
@@ -76,45 +111,111 @@ class VFEXStore:
         open_price: float | None = None,
         change_pct: float | None = None,
         date: str | None = None,
+        best_bid: float | None = None,
+        best_ask: float | None = None,
+        bid_volume: int | None = None,
+        ask_volume: int | None = None,
+        currency: str | None = None,
+        company_name: str | None = None,
+        track_history: bool = True,
+        save: bool = True,
     ) -> None:
         sym = symbol.upper()
         now = datetime.now(timezone.utc)
         today = date or now.date().isoformat()
+        prev_entry = self.state["prices"].get(sym, {})
+        cur_code = currency or infer_currency(sym, prev_entry)
         price_entry: dict[str, Any] = {
             "price": round(price, 4),
             "source": source,
+            "currency": cur_code,
             "updated_at": now.isoformat(),
         }
         if open_price is not None:
             price_entry["open"] = round(float(open_price), 4)
         if change_pct is not None:
             price_entry["change_pct"] = round(float(change_pct), 2)
+
+        self._apply_depth_fields(
+            price_entry,
+            best_bid=best_bid if best_bid is not None else prev_entry.get("best_bid"),
+            best_ask=best_ask if best_ask is not None else prev_entry.get("best_ask"),
+            bid_volume=bid_volume if bid_volume is not None else prev_entry.get("bid_volume"),
+            ask_volume=ask_volume if ask_volume is not None else prev_entry.get("ask_volume"),
+            currency=cur_code,
+            company_name=company_name or prev_entry.get("company_name"),
+        )
         self.state["prices"][sym] = price_entry
 
-        open_val = float(open_price) if open_price is not None else float(price)
-        history = self.state.setdefault("history", {}).setdefault(sym, [])
-        if history and history[-1].get("date") == today:
-            cur = history[-1]
-            cur_open = float(open_price) if open_price is not None else float(cur.get("open", cur.get("price", price)))
-            cur_high = max(float(cur.get("high", cur.get("price", price))), float(price), cur_open)
-            cur_low = min(float(cur.get("low", cur.get("price", price))), float(price), cur_open)
-            cur["open"] = round(cur_open, 4)
-            cur["high"] = round(cur_high, 4)
-            cur["low"] = round(cur_low, 4)
-            cur["close"] = round(price, 4)
-            cur["price"] = round(price, 4)
-        else:
-            history.append({
-                "date": today,
-                "open": round(open_val, 4),
-                "high": round(max(open_val, price), 4),
-                "low": round(min(open_val, price), 4),
-                "close": round(price, 4),
-                "price": round(price, 4),
-            })
-            if len(history) > 30:
-                self.state["history"][sym] = history[-30:]
-        self.save()
+        if track_history:
+            open_val = float(open_price) if open_price is not None else float(price)
+            history = self.state.setdefault("history", {}).setdefault(sym, [])
+            if history and history[-1].get("date") == today:
+                cur = history[-1]
+                cur_open = float(open_price) if open_price is not None else float(cur.get("open", cur.get("price", price)))
+                cur_high = max(float(cur.get("high", cur.get("price", price))), float(price), cur_open)
+                cur_low = min(float(cur.get("low", cur.get("price", price))), float(price), cur_open)
+                cur["open"] = round(cur_open, 4)
+                cur["high"] = round(cur_high, 4)
+                cur["low"] = round(cur_low, 4)
+                cur["close"] = round(price, 4)
+                cur["price"] = round(price, 4)
+            else:
+                history.append({
+                    "date": today,
+                    "open": round(open_val, 4),
+                    "high": round(max(open_val, price), 4),
+                    "low": round(min(open_val, price), 4),
+                    "close": round(price, 4),
+                    "price": round(price, 4),
+                })
+                if len(history) > 30:
+                    self.state["history"][sym] = history[-30:]
+        if save:
+            self.save()
+
+    @staticmethod
+    def _apply_depth_fields(
+        entry: dict[str, Any],
+        best_bid: float | None = None,
+        best_ask: float | None = None,
+        bid_volume: int | None = None,
+        ask_volume: int | None = None,
+        currency: str | None = None,
+        company_name: str | None = None,
+    ) -> None:
+        if currency:
+            entry["currency"] = currency
+        if company_name:
+            entry["company_name"] = str(company_name).strip()
+        if best_bid is not None and float(best_bid) > 0:
+            entry["best_bid"] = round(float(best_bid), 4)
+        if best_ask is not None and float(best_ask) > 0:
+            entry["best_ask"] = round(float(best_ask), 4)
+        if bid_volume is not None and int(bid_volume) >= 0:
+            entry["bid_volume"] = int(bid_volume)
+        if ask_volume is not None and int(ask_volume) >= 0:
+            entry["ask_volume"] = int(ask_volume)
+        if "best_bid" in entry and "best_ask" in entry:
+            entry["spread"] = round(float(entry["best_ask"]) - float(entry["best_bid"]), 4)
+
+    def attach_depth(
+        self,
+        symbol: str,
+        best_bid: float | None = None,
+        best_ask: float | None = None,
+        bid_volume: int | None = None,
+        ask_volume: int | None = None,
+        currency: str | None = None,
+        company_name: str | None = None,
+    ) -> None:
+        """Attach bid/ask depth metadata to an existing price entry without altering its price."""
+        entry = self.state["prices"].get(symbol.upper())
+        if entry:
+            self._apply_depth_fields(entry, best_bid, best_ask, bid_volume, ask_volume, currency, company_name)
+
+    def get_price_entry(self, symbol: str) -> dict[str, Any]:
+        return self.state.get("prices", {}).get(symbol.upper(), {})
 
     def get_price(self, symbol: str) -> float | None:
         entry = self.state["prices"].get(symbol.upper())
@@ -272,44 +373,81 @@ class VFEXStore:
         items = []
         total_cost = 0.0
         total_value = 0.0
+        zwg_cost = 0.0
+        zwg_value = 0.0
         targets = self.state.get("targets", {})
         dividends_list = self.state.get("dividends", [])
         div_by_sym: dict[str, float] = {}
         for d in dividends_list:
             s = str(d.get("symbol", "")).upper()
             div_by_sym[s] = div_by_sym.get(s, 0.0) + float(d.get("amount", 0.0))
-        total_dividends = round(sum(div_by_sym.values()), 2)
+
+        usd_dividends = round(
+            sum(amt for sym, amt in div_by_sym.items() if infer_currency(sym, self.get_price_entry(sym)) == "USD"),
+            2,
+        )
+        zwg_dividends = round(
+            sum(amt for sym, amt in div_by_sym.items() if infer_currency(sym, self.get_price_entry(sym)) == "ZWG"),
+            2,
+        )
 
         for sym, holding in sorted(self.state["portfolio"].items()):
             shares = float(holding["shares"])
             avg_cost = float(holding["avg_cost"])
             cost = shares * avg_cost
+            p_entry = self.get_price_entry(sym)
+            cur_code = infer_currency(sym, p_entry)
             current_price = self.get_price(sym)
             if current_price is None:
                 current_price = avg_cost
             value = shares * current_price
             pnl = value - cost
             pnl_pct = (pnl / cost * 100.0) if cost > 0 else 0.0
-            total_cost += cost
-            total_value += value
+            if cur_code == "ZWG":
+                zwg_cost += cost
+                zwg_value += value
+            else:
+                total_cost += cost
+                total_value += value
+            lots = holding.get("lots", [])
+            days_held: int | None = None
+            lot_dates = [str(l.get("date", "")) for l in lots if l.get("date")]
+            if lot_dates:
+                try:
+                    earliest = datetime.strptime(min(lot_dates), "%Y-%m-%d").date()
+                    days_held = max(0, (datetime.now(timezone.utc).date() - earliest).days)
+                except ValueError:
+                    days_held = None
             items.append({
                 "symbol": sym,
+                "currency": cur_code,
                 "shares": shares,
                 "avg_cost": avg_cost,
+                "cost": round(cost, 2),
                 "price": current_price,
                 "value": value,
                 "pnl": pnl,
                 "pnl_pct": pnl_pct,
+                "days_held": days_held,
                 "dividends": round(div_by_sym.get(sym, 0.0), 2),
                 "change_pct": self.get_daily_change(sym),
+                "best_bid": p_entry.get("best_bid"),
+                "best_ask": p_entry.get("best_ask"),
+                "bid_volume": p_entry.get("bid_volume"),
+                "ask_volume": p_entry.get("ask_volume"),
+                "spread": p_entry.get("spread"),
+                "company_name": p_entry.get("company_name"),
                 "candles": self.get_candles(sym),
-                "lots": holding.get("lots", []),
+                "lots": lots,
                 "target_pct": targets.get(sym),
             })
         for item in items:
-            item["alloc_pct"] = round((item["value"] / total_value) * 100.0, 1) if total_value > 0 else 0.0
+            denom = zwg_value if item["currency"] == "ZWG" else total_value
+            item["alloc_pct"] = round((item["value"] / denom) * 100.0, 1) if denom > 0 else 0.0
         total_pnl = total_value - total_cost
         total_pnl_pct = (total_pnl / total_cost * 100.0) if total_cost > 0 else 0.0
+        zwg_pnl = zwg_value - zwg_cost
+        zwg_pnl_pct = (zwg_pnl / zwg_cost * 100.0) if zwg_cost > 0 else 0.0
         realized_pnl = round(float(self.state.get("realized_pnl", 0.0)), 2)
         return {
             "items": items,
@@ -318,8 +456,14 @@ class VFEXStore:
             "total_pnl": total_pnl,
             "total_pnl_pct": total_pnl_pct,
             "realized_pnl": realized_pnl,
-            "total_dividends": total_dividends,
-            "total_return": round(total_pnl + total_dividends + realized_pnl, 2),
+            "total_dividends": usd_dividends,
+            "total_return": round(total_pnl + usd_dividends + realized_pnl, 2),
+            "zwg_cost": round(zwg_cost, 2),
+            "zwg_value": round(zwg_value, 2),
+            "zwg_pnl": round(zwg_pnl, 2),
+            "zwg_pnl_pct": round(zwg_pnl_pct, 2),
+            "zwg_dividends": zwg_dividends,
+            "has_zwg": zwg_cost > 0 or zwg_value > 0 or zwg_dividends > 0,
         }
 
     def set_target(self, symbol: str, pct: float) -> None:
@@ -343,20 +487,27 @@ class VFEXStore:
         if budget <= 0:
             raise ValueError("DCA budget must be positive.")
 
-        targets = {s: float(p) for s, p in self.state.get("targets", {}).items() if float(p) > 0}
+        targets = {
+            s: float(p)
+            for s, p in self.state.get("targets", {}).items()
+            if float(p) > 0 and infer_currency(s, self.get_price_entry(s)) == "USD"
+        }
         if targets:
             total_t = sum(targets.values())
             weights = {s: p / total_t for s, p in sorted(targets.items())}
             mode = "targets"
         else:
-            syms = sorted(set(self.state.get("portfolio", {}).keys()) | set(self.state.get("watchlist", [])))
+            syms = sorted(
+                s for s in (set(self.state.get("portfolio", {}).keys()) | set(self.state.get("watchlist", [])))
+                if infer_currency(s, self.get_price_entry(s)) == "USD"
+            )
             if not syms:
                 return {"budget": round(budget, 2), "mode": "equal", "plan": []}
             weights = {s: 1.0 / len(syms) for s in syms}
             mode = "equal"
 
         summary = self.portfolio_summary()
-        current_values = {item["symbol"]: float(item["value"]) for item in summary["items"]}
+        current_values = {item["symbol"]: float(item["value"]) for item in summary["items"] if item["currency"] == "USD"}
         current_total = float(summary["total_value"])
         projected_total = current_total + budget
 
@@ -591,13 +742,120 @@ def get_last_updated_label(store: VFEXStore) -> str:
     return dt.strftime("%H:%M") if dt.date() == today_cat else dt.strftime("%Y-%m-%d %H:%M")
 
 
+def _fetch_json(target_url: str, timeout: int = 10) -> tuple[int, Any]:
+    req = urllib.request.Request(
+        target_url,
+        headers={"User-Agent": "omarchy-VFEX-Direct/0.1", "Accept": "application/json"},
+    )
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.status, json.loads(resp.read().decode("utf-8"))
+
+
+def _ingest_vfex_direct_payload(store: VFEXStore, payload: Any) -> int:
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, dict):
+        return 0
+    updated = 0
+    for group_items in data.values():
+        if not isinstance(group_items, list):
+            continue
+        for item in group_items:
+            raw_sym = str(item.get("symbol") or "").strip().upper()
+            sym = raw_sym[:-3] if raw_sym.endswith(".VX") else raw_sym
+            raw_price = item.get("closingPrice")
+            if raw_price is None:
+                raw_price = item.get("openingPrice")
+            if sym and raw_price is not None:
+                open_p = item.get("openingPrice")
+                chg_p = item.get("percentagePriceChange")
+                stats_d = item.get("statsDate")
+                store.set_price(
+                    sym,
+                    float(raw_price),
+                    source="vfex-direct",
+                    open_price=float(open_p) if open_p is not None else None,
+                    change_pct=float(chg_p) if chg_p is not None else None,
+                    date=str(stats_d) if stats_d else None,
+                    currency="USD",
+                    company_name=item.get("symbolName"),
+                    save=False,
+                )
+                updated += 1
+    return updated
+
+
+def _ingest_ctrade_rows(
+    store: VFEXStore,
+    rows: Any,
+    currency: str,
+    strip_vx: bool,
+    today: str,
+    tracked_zse: set[str],
+) -> int:
+    if not isinstance(rows, list):
+        return 0
+    updated = 0
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        raw_sym = str(item.get("Ticker") or "").strip().upper()
+        if not raw_sym:
+            continue
+        sym = raw_sym[:-3] if (strip_vx and raw_sym.endswith(".VX")) else raw_sym
+        cur_p = _safe_float(item.get("Current_price"))
+        prev_p = _safe_float(item.get("PrevPrice"))
+        prev_per = _safe_float(item.get("PrevPer"))
+        bid = _safe_float(item.get("Best_bid"))
+        ask = _safe_float(item.get("Best_Ask"))
+        bid_vol = _safe_int(item.get("Bid_Volume"))
+        ask_vol = _safe_int(item.get("Ask_Volume"))
+        cname = str(item.get("FullCompanyName") or "").strip() or None
+        track_hist = (currency == "USD") or (sym in tracked_zse)
+
+        effective_price = cur_p if (cur_p is not None and cur_p > 0) else (
+            prev_p if (prev_p is not None and prev_p > 0 and sym not in store.state["prices"]) else None
+        )
+        if effective_price is not None:
+            store.set_price(
+                sym,
+                effective_price,
+                source="c-trade-vfex" if currency == "USD" else "c-trade-zse",
+                open_price=prev_p if (prev_p is not None and prev_p > 0) else None,
+                change_pct=prev_per,
+                date=today,
+                best_bid=bid,
+                best_ask=ask,
+                bid_volume=bid_vol,
+                ask_volume=ask_vol,
+                currency=currency,
+                company_name=cname,
+                track_history=track_hist,
+                save=False,
+            )
+            updated += 1
+        elif sym in store.state["prices"]:
+            store.attach_depth(
+                sym,
+                best_bid=bid,
+                best_ask=ask,
+                bid_volume=bid_vol,
+                ask_volume=ask_vol,
+                currency=currency,
+                company_name=cname,
+            )
+            updated += 1
+    return updated
+
+
 def fetch_vfex_prices(
     store: VFEXStore,
-    url: str = "https://d3u8q0mxu6epjj.cloudfront.net/api/v1/voms/price-sheets/active",
+    url: str = VFEX_DIRECT_URL,
     force: bool = False,
     ttl_seconds: int = 900,
+    ctrade_vfex_url: str | None = CTRADE_VFEX_URL,
+    ctrade_zse_url: str | None = CTRADE_ZSE_URL,
 ) -> dict[str, Any]:
-    """Fetch VFEX prices when cache TTL (15m default) expires or forced, preserving cached prices on fallback."""
+    """Fetch VFEX + C-TRADE prices & market depth when TTL expires or forced, preserving cached data on failure."""
     now = datetime.now(timezone.utc)
     today = now.date().isoformat()
     if not force:
@@ -611,42 +869,49 @@ def fetch_vfex_prices(
         elif store.state.get("last_fetch_date") == today:
             return {"ok": True, "cached": True, "message": f"Already fetched today ({today}); using cached prices."}
 
-    req = urllib.request.Request(url, headers={"User-Agent": "omarchy-VFEX-Direct/0.1", "Accept": "application/json"})
+    custom_override = url != VFEX_DIRECT_URL
+    tracked_zse = set(store.state.get("watchlist", [])) | set(store.state.get("portfolio", {}).keys())
+    updated = 0
+    statuses: list[int] = []
+    errors: list[str] = []
+
     try:
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            status = resp.status
-            payload = json.loads(resp.read().decode("utf-8"))
-        data = payload.get("data") or {}
-        updated = 0
-        if isinstance(data, dict):
-            for group_items in data.values():
-                if not isinstance(group_items, list):
-                    continue
-                for item in group_items:
-                    raw_sym = str(item.get("symbol") or "").strip().upper()
-                    sym = raw_sym[:-3] if raw_sym.endswith(".VX") else raw_sym
-                    raw_price = item.get("closingPrice")
-                    if raw_price is None:
-                        raw_price = item.get("openingPrice")
-                    if sym and raw_price is not None:
-                        open_p = item.get("openingPrice")
-                        chg_p = item.get("percentagePriceChange")
-                        stats_d = item.get("statsDate")
-                        store.set_price(
-                            sym,
-                            float(raw_price),
-                            source="vfex-direct",
-                            open_price=float(open_p) if open_p is not None else None,
-                            change_pct=float(chg_p) if chg_p is not None else None,
-                            date=str(stats_d) if stats_d else None,
-                        )
-                        updated += 1
-        store.state["last_fetch_date"] = today
-        store.state["last_fetch_at"] = datetime.now(timezone.utc).isoformat()
-        store.save()
-        return {"ok": True, "cached": False, "status": status, "updated": updated, "message": f"VFEX updated {updated} prices ({today})."}
+        st, payload = _fetch_json(url)
+        statuses.append(st)
+        updated += _ingest_vfex_direct_payload(store, payload)
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
-        return {"ok": False, "cached": True, "status": None, "message": f"Could not reach VFEX ({exc}). Using cached prices."}
+        errors.append(str(exc))
+
+    if not custom_override and ctrade_vfex_url:
+        try:
+            st, ct_vfex = _fetch_json(ctrade_vfex_url)
+            statuses.append(st)
+            updated += _ingest_ctrade_rows(store, ct_vfex, "USD", True, today, tracked_zse)
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
+            errors.append(str(exc))
+
+    if not custom_override and ctrade_zse_url:
+        try:
+            st, ct_zse = _fetch_json(ctrade_zse_url)
+            statuses.append(st)
+            updated += _ingest_ctrade_rows(store, ct_zse, "ZWG", False, today, tracked_zse)
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
+            errors.append(str(exc))
+
+    if not statuses:
+        reason = errors[0] if errors else "network error"
+        return {"ok": False, "cached": True, "status": None, "message": f"Could not reach VFEX ({reason}). Using cached prices."}
+
+    store.state["last_fetch_date"] = today
+    store.state["last_fetch_at"] = datetime.now(timezone.utc).isoformat()
+    store.save()
+    return {
+        "ok": True,
+        "cached": False,
+        "status": statuses[0],
+        "updated": updated,
+        "message": f"Updated {updated} quotes ({today}).",
+    }
 
 
 def format_waybar(store: VFEXStore) -> dict[str, str]:
@@ -656,44 +921,59 @@ def format_waybar(store: VFEXStore) -> dict[str, str]:
     status_label = get_market_status()
     updated_label = get_last_updated_label(store)
     meta = f"Market: {status_label}" + (f" • Updated {updated_label}" if updated_label else "")
-    tooltip_lines = ["VFEX Direct — Portfolio & Watchlist (USD)", meta]
+    tooltip_lines = ["VFEX Direct & C-TRADE — Portfolio & Watchlist", meta]
 
-    if summary["items"]:
+    usd_items = [i for i in summary["items"] if i["currency"] == "USD"]
+    if usd_items:
         pnl = summary["total_pnl"]
         sign = "+" if pnl >= 0 else ""
         text = f"VFEX ${summary['total_value']:.2f} ({sign}${pnl:.2f})"
         css_class = "profit" if pnl >= 0 else "loss"
-        tooltip_lines.append("")
-        tooltip_lines.append("Holdings:")
-        for item in summary["items"]:
-            isign = "+" if item["pnl"] >= 0 else ""
-            chg = item.get("change_pct")
-            chg_str = f" | {'+' if chg >= 0 else ''}{chg:.1f}% today" if chg is not None else ""
-            tooltip_lines.append(
-                f"  {item['symbol']}: {item['shares']:g} @ ${item['price']:.4f} ({isign}${item['pnl']:.2f} / {isign}{item['pnl_pct']:.1f}%{chg_str})"
-            )
+    elif summary["items"]:
+        zpnl = summary["zwg_pnl"]
+        sign = "+" if zpnl >= 0 else ""
+        text = f"ZSE ZiG {summary['zwg_value']:.2f} ({sign}ZiG {zpnl:.2f})"
+        css_class = "profit" if zpnl >= 0 else "loss"
     else:
         watch = store.state.get("watchlist", [])
         if watch:
             first = watch[0]
             p = store.get_price(first)
+            cur_code = infer_currency(first, store.get_price_entry(first))
             chg = store.get_daily_change(first)
             chg_str = f" ({'+' if chg >= 0 else ''}{chg:.1f}%)" if chg is not None else ""
-            text = f"VFEX {first} ${p:.4f}{chg_str}" if p is not None else f"VFEX {first} --"
+            text = f"VFEX {first} {format_money(p, cur_code, 4)}{chg_str}" if p is not None else f"VFEX {first} --"
         else:
             text = "VFEX --"
         css_class = "neutral"
+
+    if summary["items"]:
+        tooltip_lines.append("")
+        tooltip_lines.append("Holdings:")
+        for item in summary["items"]:
+            cur_code = item["currency"]
+            isign = "+" if item["pnl"] >= 0 else "-"
+            chg = item.get("change_pct")
+            chg_str = f" | {'+' if chg >= 0 else ''}{chg:.1f}% today" if chg is not None else ""
+            tooltip_lines.append(
+                f"  {item['symbol']}: {item['shares']:g} @ {format_money(item['price'], cur_code, 4)} ({isign}{format_money(abs(item['pnl']), cur_code, 2)} / {'+' if item['pnl_pct'] >= 0 else ''}{item['pnl_pct']:.1f}%{chg_str})"
+            )
 
     watch = store.state.get("watchlist", [])
     if watch:
         tooltip_lines.append("")
         tooltip_lines.append("Watchlist:")
         for sym in watch:
+            p_entry = store.get_price_entry(sym)
+            cur_code = infer_currency(sym, p_entry)
             p = store.get_price(sym)
-            p_str = f"${p:.4f}" if p is not None else "N/A"
+            p_str = format_money(p, cur_code, 4) if p is not None else "N/A"
             chg = store.get_daily_change(sym)
             chg_str = f" ({'+' if chg >= 0 else ''}{chg:.1f}%)" if chg is not None else ""
-            tooltip_lines.append(f"  {sym}: {p_str}{chg_str}")
+            depth_str = ""
+            if p_entry.get("best_bid") and p_entry.get("best_ask"):
+                depth_str = f" | B:{format_money(p_entry['best_bid'], cur_code, 4)} A:{format_money(p_entry['best_ask'], cur_code, 4)}"
+            tooltip_lines.append(f"  {sym}: {p_str}{chg_str}{depth_str}")
 
     return {"text": text, "tooltip": "\n".join(tooltip_lines), "class": css_class}
 
@@ -708,15 +988,29 @@ def format_panel_json(store: VFEXStore) -> dict[str, Any]:
     watchlist_items = []
     history_map = store.state.get("history", {})
     for sym in store.state.get("watchlist", []):
+        p_entry = store.get_price_entry(sym)
         hist = [h.get("close", h.get("price")) for h in history_map.get(sym, []) if ("close" in h or "price" in h)]
         watchlist_items.append({
             "symbol": sym,
+            "currency": infer_currency(sym, p_entry),
             "price": store.get_price(sym),
             "buy": sym in recs,
             "history": hist,
             "candles": store.get_candles(sym),
             "change_pct": store.get_daily_change(sym),
+            "best_bid": p_entry.get("best_bid"),
+            "best_ask": p_entry.get("best_ask"),
+            "bid_volume": p_entry.get("bid_volume"),
+            "ask_volume": p_entry.get("ask_volume"),
+            "spread": p_entry.get("spread"),
+            "company_name": p_entry.get("company_name"),
+            "source": p_entry.get("source"),
         })
+
+    zse_symbols = sorted(
+        sym for sym, entry in store.state.get("prices", {}).items()
+        if infer_currency(sym, entry) == "ZWG"
+    )
 
     triggered_alerts = []
     active_alerts = []
@@ -742,6 +1036,13 @@ def format_panel_json(store: VFEXStore) -> dict[str, Any]:
         "realized_pnl": summary["realized_pnl"],
         "total_dividends": summary["total_dividends"],
         "total_return": summary["total_return"],
+        "zwg_value": summary["zwg_value"],
+        "zwg_cost": summary["zwg_cost"],
+        "zwg_pnl": summary["zwg_pnl"],
+        "zwg_pnl_pct": summary["zwg_pnl_pct"],
+        "zwg_dividends": summary["zwg_dividends"],
+        "has_zwg": summary["has_zwg"],
+        "zse_symbols": zse_symbols,
         "items": summary["items"],
         "watchlist": watchlist_items,
         "recommendations": list(recs.values()),

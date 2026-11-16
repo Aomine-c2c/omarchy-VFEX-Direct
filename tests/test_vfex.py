@@ -40,7 +40,7 @@ class TestVFEXStore(unittest.TestCase):
 
         # Persistent triggered/active alert formatting & removal
         self.store.add_alert("INFR", "below", 0.20)
-        self.store.set_price("INFR", 0.25)
+        self.store.set_price("INFR", 0.25, date="2026-11-13")
         self.store.state["last_fetch_date"] = datetime.now(timezone.utc).date().isoformat()
         panel = format_panel_json(self.store)
         self.assertEqual(len(panel["triggered_alerts"]), 1)
@@ -78,7 +78,7 @@ class TestVFEXStore(unittest.TestCase):
     def test_lots_targets_and_dca_planner(self) -> None:
         self.store.buy("INFR", 100, 0.25, date="2026-11-10")
         self.store.buy("INFR", 100, 0.25, date="2026-11-12")
-        self.store.set_price("INFR", 0.25)
+        self.store.set_price("INFR", 0.25, date="2026-11-13")
         self.store.set_price("SIM", 0.50)
 
         # INFR is currently $50 (100%), SIM is $0 (0%). Target 50/50 -> $50 DCA goes 100% to SIM.
@@ -89,6 +89,9 @@ class TestVFEXStore(unittest.TestCase):
         infr = summary["items"][0]
         self.assertEqual(len(infr["lots"]), 2)
         self.assertEqual(infr["lots"][0]["date"], "2026-11-10")
+        self.assertAlmostEqual(infr["cost"], 50.0)
+        self.assertIsNotNone(infr["days_held"])
+        self.assertGreaterEqual(infr["days_held"], 0)
         self.assertEqual(infr["alloc_pct"], 100.0)
         self.assertEqual(infr["target_pct"], 50.0)
 
@@ -138,7 +141,7 @@ class TestVFEXStore(unittest.TestCase):
             {"date": "2026-11-12", "price": 0.20},
             {"date": "2026-11-13", "price": 0.25},
         ]
-        self.store.set_price("INFR", 0.25)
+        self.store.set_price("INFR", 0.25, date="2026-11-13")
         self.assertAlmostEqual(self.store.get_daily_change("INFR"), 25.0)
         wb = format_waybar(self.store)
         self.assertIn("+25.0%", wb["text"])
@@ -146,7 +149,7 @@ class TestVFEXStore(unittest.TestCase):
 
     def test_dividends_and_total_return(self) -> None:
         self.store.buy("INFR", 100, 0.20, date="2026-11-10")
-        self.store.set_price("INFR", 0.25)
+        self.store.set_price("INFR", 0.25, date="2026-11-13")
         self.store.add_dividend("INFR", 2.50, date="2026-11-13")
         summary = self.store.portfolio_summary()
         self.assertAlmostEqual(summary["total_pnl"], 5.0)
@@ -161,7 +164,7 @@ class TestVFEXStore(unittest.TestCase):
         self.assertEqual(get_market_status(datetime(2026, 11, 13, 12, 0, tzinfo=timezone.utc)), "Closed")
         # Saturday -> Closed
         self.assertEqual(get_market_status(datetime(2026, 11, 14, 8, 30, tzinfo=timezone.utc)), "Closed")
-        self.store.set_price("INFR", 0.25)
+        self.store.set_price("INFR", 0.25, date="2026-11-13")
         self.assertTrue(len(get_last_updated_label(self.store)) > 0)
 
     def test_fetch_ttl_and_error(self) -> None:
@@ -176,7 +179,7 @@ class TestVFEXStore(unittest.TestCase):
 
     def test_export_md_and_csv(self) -> None:
         self.store.buy("INFR", 100, 0.20, date="2026-11-10")
-        self.store.set_price("INFR", 0.25)
+        self.store.set_price("INFR", 0.25, date="2026-11-13")
         self.store.add_dividend("INFR", 1.50, date="2026-11-13")
         md = self.store.export_report("md")
         self.assertIn("# VFEX Portfolio Report", md)
@@ -231,6 +234,57 @@ class TestVFEXStore(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             VFEXStore._normalize_date("not-a-date")
+
+    def test_ctrade_depth_and_zwg_currency_separation(self) -> None:
+        from vfex import _ingest_ctrade_rows
+        vfex_rows = [{
+            "Ticker": "INFR.VX",
+            "Current_price": ".2494",
+            "PrevPrice": ".2477",
+            "PrevPer": "0.6863",
+            "Best_bid": ".2200",
+            "Best_Ask": ".2480",
+            "Bid_Volume": "2665",
+            "Ask_Volume": "37195",
+            "FullCompanyName": "Econet InfraCo",
+        }]
+        zse_rows = [{
+            "Ticker": "AFDS.ZW",
+            "Current_price": "19.2826",
+            "PrevPrice": "19.2826",
+            "PrevPer": "0.0",
+            "Best_bid": "19.3000",
+            "Best_Ask": "19.0000",
+            "Bid_Volume": "40",
+            "Ask_Volume": "1",
+            "FullCompanyName": "African Distillers Limited",
+        }]
+        _ingest_ctrade_rows(self.store, vfex_rows, "USD", True, "2026-11-16", set())
+        _ingest_ctrade_rows(self.store, zse_rows, "ZWG", False, "2026-11-16", set())
+
+        self.store.buy("INFR", 10, 0.20, date="2026-11-10")
+        self.store.buy("AFDS.ZW", 2, 18.00, date="2026-11-12")
+        self.store.state["watchlist"] = ["INFR", "AFDS.ZW"]
+        self.store.state["last_fetch_at"] = datetime.now(timezone.utc).isoformat()
+
+        summary = self.store.portfolio_summary()
+        # USD totals exclude ZWG holdings
+        self.assertAlmostEqual(summary["total_cost"], 2.00)
+        self.assertAlmostEqual(summary["total_value"], 2.494)
+        self.assertTrue(summary["has_zwg"])
+        self.assertAlmostEqual(summary["zwg_cost"], 36.00)
+        self.assertAlmostEqual(summary["zwg_value"], 38.5652, places=2)
+
+        panel = format_panel_json(self.store)
+        wl = {w["symbol"]: w for w in panel["watchlist"]}
+        self.assertEqual(wl["INFR"]["currency"], "USD")
+        self.assertAlmostEqual(wl["INFR"]["best_bid"], 0.2200)
+        self.assertAlmostEqual(wl["INFR"]["best_ask"], 0.2480)
+        self.assertEqual(wl["INFR"]["bid_volume"], 2665)
+        self.assertEqual(wl["INFR"]["ask_volume"], 37195)
+        self.assertAlmostEqual(wl["INFR"]["spread"], 0.0280)
+        self.assertEqual(wl["AFDS.ZW"]["currency"], "ZWG")
+        self.assertIn("AFDS.ZW", panel["zse_symbols"])
 
 
 if __name__ == "__main__":
