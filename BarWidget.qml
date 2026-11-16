@@ -9,6 +9,7 @@ BarWidget {
 
     readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
     readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false
+    readonly property bool fetching: fetchProc.running || vfexProc.running
 
     property string barText: "VFEX --"
     property string tooltipBody: "VFEX Direct — Click to open portfolio & watchlist"
@@ -69,7 +70,7 @@ BarWidget {
                     var parsed = JSON.parse(data)
                     root.summaryData = parsed
                     var alerts = parsed.alerts || []
-                    var prefix = alerts.length > 0 ? "⚠ " : ""
+                    var prefix = alerts.length > 0 ? "⚠ " : (parsed.market_status === "Open" ? "● " : "")
                     root.barText = prefix + (parsed.text || "VFEX --")
                     root.tooltipBody = (alerts.length > 0 ? ("Alerts:\n" + alerts.join("\n") + "\n\n") : "") + (parsed.tooltip || "VFEX Direct")
                     if (panelLoader.item) panelLoader.item.summaryData = parsed
@@ -103,6 +104,7 @@ BarWidget {
         bar: root.bar
         text: root.barText
         tooltipText: root.tooltipBody
+        active: (root.summaryData.alerts || []).length > 0
         onPressed: function(buttonCode) {
             if (buttonCode === Qt.LeftButton) {
                 root.refresh()
