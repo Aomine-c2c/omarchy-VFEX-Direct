@@ -16,6 +16,29 @@ BarWidget {
     property string tooltipBody: "VFEX Direct — Click to open portfolio & watchlist"
     property var summaryData: ({ text: "VFEX --", tooltip: "", class: "neutral", watchlist: [], signals: [] })
     property int rotIndex: 0
+    property bool notchPeekOpen: false
+    property bool notchSurfaceHovered: false
+
+    Timer {
+        id: notchCloseTimer
+        interval: 240
+        onTriggered: {
+            if (!barHover.hovered && !button.tooltipHovered && !root.notchSurfaceHovered) {
+                root.notchPeekOpen = false
+            }
+        }
+    }
+
+    function updateNotchPeekState() {
+        var want = root.cfgNothingNotch && !root.opened && (barHover.hovered || button.tooltipHovered || root.notchSurfaceHovered)
+        if (want) {
+            notchCloseTimer.stop()
+            root.notchPeekOpen = true
+        } else {
+            notchCloseTimer.restart()
+        }
+        root.injectNotch()
+    }
 
     readonly property string cfgBarMode: String(root.setting("barMode", "Rotating"))
     readonly property int cfgRotSec: Math.max(2, Number(root.setting("rotationIntervalSec", 5)))
@@ -35,6 +58,8 @@ BarWidget {
     readonly property bool cfgNewsEnabled: root.setting("newsEnabled", true) === true
     readonly property bool cfgAgentEnabled: root.setting("agentEnabled", true) === true
     readonly property real cfgAgentZwgRate: Math.max(1, Number(root.setting("agentZwgRate", "26.5")) || 26.5)
+    readonly property bool cfgNothingNotch: root.setting("nothingNotchEnabled", true) !== false
+    readonly property bool cfgNothingMatrixBar: root.setting("nothingMatrixBar", true) !== false
 
     function panelJsonCmd() {
         var cmd = [
@@ -247,14 +272,40 @@ BarWidget {
         panelLoader.item.wideLayout = root.cfgWideLayout
     }
 
+    function injectNotch() {
+        if (!notchLoader.item) return
+        notchLoader.item.bar = root.bar
+        notchLoader.item.hostWidget = root
+        notchLoader.item.summaryData = root.summaryData
+        notchLoader.item.displayText = root.barText
+        notchLoader.item.displayColor = root.barForeground
+        notchLoader.item.enabled = root.cfgNothingNotch
+        notchLoader.item.hostOpened = root.opened
+        notchLoader.item.isFetching = root.fetching
+        notchLoader.item.barHovered = barHover.hovered || button.tooltipHovered
+        notchLoader.item.hovered = true
+    }
+
     implicitWidth: button.implicitWidth
     implicitHeight: button.implicitHeight
-    onBarChanged: injectPanel()
+    onBarChanged: { injectPanel(); injectNotch() }
+    onBarTextChanged: injectNotch()
+    onBarForegroundChanged: injectNotch()
+    onOpenedChanged: {
+        if (root.opened) {
+            notchCloseTimer.stop()
+            root.notchPeekOpen = false
+        }
+        injectNotch()
+    }
+    onFetchingChanged: injectNotch()
     onSettingsChanged: {
         root.injectPanel()
+        root.injectNotch()
         root.updateBarDisplay()
         root.refresh(false)
     }
+    onCfgNothingNotchChanged: injectNotch()
     onCfgWideLayoutChanged: injectPanel()
     onCfgBarModeChanged: updateBarDisplay()
     onCfgTradingGoalChanged: {
@@ -291,6 +342,7 @@ BarWidget {
                     root.summaryData = parsed
                     root.tooltipBody = root.buildTooltip(parsed)
                     root.updateBarDisplay()
+                    root.injectNotch()
                     if (panelLoader.item) {
                         panelLoader.item.summaryData = parsed
                         panelLoader.item.wideLayout = root.cfgWideLayout
@@ -329,20 +381,62 @@ BarWidget {
         }
     }
 
+    Loader {
+        id: notchLoader
+        active: root.cfgNothingNotch && root.notchPeekOpen && !root.opened
+        source: Qt.resolvedUrl("NothingNotch.qml")
+        onLoaded: {
+            root.injectNotch()
+            Qt.callLater(root.injectNotch)
+        }
+    }
+
     WidgetButton {
         id: button
         anchors.fill: parent
         bar: root.bar
         text: root.barText
-        foreground: root.barForeground
-        tooltipText: root.tooltipBody
+        foreground: root.cfgNothingMatrixBar ? ((root.summaryData.alerts || []).length > 0 || String(root.barForeground) === "#f38ba8" ? "#ff2a3c" : (String(root.barForeground) === "#a6e3a1" ? "#4ade80" : "#f4f4f6")) : root.barForeground
+        horizontalMargin: root.cfgNothingMatrixBar ? 13 : 8.5
+        tooltipText: root.cfgNothingNotch ? "" : root.tooltipBody
         active: (root.summaryData.alerts || []).length > 0
+        onTooltipHoveredChanged: root.updateNotchPeekState()
+
+        HoverHandler {
+            id: barHover
+            onHoveredChanged: root.updateNotchPeekState()
+        }
+
+        Rectangle {
+            z: -1
+            visible: root.cfgNothingMatrixBar && root.barText !== ""
+            anchors.centerIn: parent
+            width: Math.max(24, parent.width - 4)
+            height: Math.max(18, parent.height - 6)
+            radius: height / 2
+            color: "#050507"
+            border.color: (root.summaryData.alerts || []).length > 0 ? "#ff2a3c" : "#27272a"
+            border.width: 1
+
+            Rectangle {
+                anchors.left: parent.left
+                anchors.leftMargin: 6
+                anchors.verticalCenter: parent.verticalCenter
+                width: 4
+                height: 4
+                radius: 2
+                color: (root.summaryData.market_status === "Open" || (root.summaryData.alerts || []).length > 0) ? "#ff2a3c" : "#3f3f46"
+            }
+        }
         onWheelMoved: function(delta) {
             root.rotIndex = delta > 0 ? (root.rotIndex - 1) : (root.rotIndex + 1)
             root.updateBarDisplay()
         }
         onPressed: function(buttonCode) {
             if (buttonCode === Qt.LeftButton) {
+                notchCloseTimer.stop()
+                root.notchSurfaceHovered = false
+                root.notchPeekOpen = false
                 root.refresh()
                 root.toggle()
             } else if (buttonCode === Qt.MiddleButton) {

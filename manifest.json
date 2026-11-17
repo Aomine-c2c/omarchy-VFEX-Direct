@@ -32,7 +32,9 @@
       "profitTakePct": 15,
       "newsEnabled": true,
       "agentEnabled": true,
-      "agentZwgRate": "26.5"
+      "agentZwgRate": "26.5",
+      "nothingNotchEnabled": true,
+      "nothingMatrixBar": true
     },
     "schema": [
       {
@@ -147,6 +149,18 @@
         "type": "string",
         "label": "Paper agent ZWG/USD exchange rate (e.g. 26.5)",
         "defaultValue": "26.5"
+      },
+      {
+        "key": "nothingNotchEnabled",
+        "type": "boolean",
+        "label": "Nothing UI Dot-Matrix Notch pill (floating top-center Dynamic Island)",
+        "defaultValue": true
+      },
+      {
+        "key": "nothingMatrixBar",
+        "type": "boolean",
+        "label": "Style Omarchy Bar widget as a Nothing OLED black & red LED pill",
+        "defaultValue": true
       }
     ]
   }

@@ -9,7 +9,7 @@ mkdir -p "${BIN_DIR}" "${PLUGIN_DIR}"
 chmod +x "${SCRIPT_DIR}/vfex.py"
 ln -sf "${SCRIPT_DIR}/vfex.py" "${BIN_DIR}/vfex"
 
-for f in Panel.qml BarWidget.qml manifest.json vfex.py; do
+for f in Panel.qml BarWidget.qml NothingNotch.qml manifest.json vfex.py; do
     ln -sf "${SCRIPT_DIR}/${f}" "${PLUGIN_DIR}/${f}"
 done
 
