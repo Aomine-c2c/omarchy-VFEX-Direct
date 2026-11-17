@@ -22,13 +22,17 @@
       "rotationIntervalSec": 5,
       "refreshIntervalSec": 60,
       "panelLayout": "Dashboard (Wide)",
-      "signalMarket": "VFEX + ZSE",
+      "signalMarket": "Tracked Only",
+      "tradingGoal": "Hybrid (Both)",
       "discountPct": 3,
       "notifySignals": true,
-      "vfexFeePct": "0.0",
-      "zseFeePct": "0.0",
+      "vfexFeePct": "statutory",
+      "zseFeePct": "statutory",
       "maxStockPct": 25,
-      "profitTakePct": 15
+      "profitTakePct": 15,
+      "newsEnabled": true,
+      "agentEnabled": true,
+      "agentZwgRate": "26.5"
     },
     "schema": [
       {
@@ -67,9 +71,18 @@
       {
         "key": "signalMarket",
         "type": "enum",
-        "label": "Trade signal market scope",
-        "options": ["VFEX + ZSE", "VFEX Only"],
-        "defaultValue": "VFEX + ZSE"
+        "label": "Trade signal & recommendation scope",
+        "options": ["Tracked Only", "Tracked VFEX Only", "All Market (VFEX + ZSE)"],
+        "defaultValue": "Tracked Only",
+        "description": "Tracked Only limits Overview Signals, Bar ticker & alerts to your Watchlist, Holdings & Targets. Tab 2 Screener always scans all 56 counters."
+      },
+      {
+        "key": "tradingGoal",
+        "type": "enum",
+        "label": "Trading goal & strategy horizon",
+        "options": ["Hybrid (Both)", "Long-Term Compounder", "Short-Term Swing"],
+        "defaultValue": "Hybrid (Both)",
+        "description": "Adapts BUY/SELL signal scoring, holding protections, screener defaults, and UI metrics for multi-year holds, quick swings, or both."
       },
       {
         "key": "discountPct",
@@ -102,20 +115,38 @@
       {
         "key": "vfexFeePct",
         "type": "string",
-        "label": "VFEX fee per side % (e.g. 2.0, 0.0 = raw P&L)",
-        "defaultValue": "0.0"
+        "label": "VFEX fee ('statutory' = Morgan & Co ~1.04%, '0.0' = gross)",
+        "defaultValue": "statutory"
       },
       {
         "key": "zseFeePct",
         "type": "string",
-        "label": "ZSE fee per side % (e.g. 2.8, 0.0 = raw P&L)",
-        "defaultValue": "0.0"
+        "label": "ZSE fee ('statutory' = C-TRADE/CGT ~2.18%, '0.0' = gross)",
+        "defaultValue": "statutory"
       },
       {
         "key": "notifySignals",
         "type": "boolean",
         "label": "Desktop alerts for top trade signals",
         "defaultValue": true
+      },
+      {
+        "key": "newsEnabled",
+        "type": "boolean",
+        "label": "Live VFEX/ZSE news catalysts & headline alerts",
+        "defaultValue": true
+      },
+      {
+        "key": "agentEnabled",
+        "type": "boolean",
+        "label": "Auto-run $100 self-learning paper agent during open hours",
+        "defaultValue": true
+      },
+      {
+        "key": "agentZwgRate",
+        "type": "string",
+        "label": "Paper agent ZWG/USD exchange rate (e.g. 26.5)",
+        "defaultValue": "26.5"
       }
     ]
   }
