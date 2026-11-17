@@ -1564,8 +1564,151 @@ For and on behalf of MORGAN & CO
         self.assertEqual(panel["accounts"]["ctrade"]["cash_usd"], 42.50)
         self.assertEqual(panel["accounts"]["ctrade"]["cash_zwg"], 310.00)
         self.assertEqual(len(panel["portal_orders"]), 1)
-        self.assertTrue(panel["portal_transactions"][0]["already_imported"])
-        self.assertFalse(panel["portal_transactions"][1]["already_imported"])
+        by_tx_id = {tx["id"]: tx for tx in panel["portal_transactions"]}
+        self.assertTrue(by_tx_id["T1"]["already_imported"])
+        self.assertFalse(by_tx_id["T2"]["already_imported"])
+
+    def test_grokking_generalization_gate_history_and_training(self) -> None:
+        from datetime import timedelta
+        from vfex import (
+            GROK_MIN_EPISODES,
+            _build_history_episodes,
+            _default_mahoraga_brain,
+            _mahoraga_feature_vector,
+            _mahoraga_predict,
+            _train_grokking_model,
+        )
+
+        # 1. History retention expanded beyond 30 days (up to 180)
+        start_dt = datetime(2026, 5, 1, tzinfo=timezone.utc).date()
+        for i in range(45):
+            d_str = (start_dt + timedelta(days=i)).isoformat()
+            px = 2.0 + (0.04 * i) + (0.15 if i % 6 == 0 else -0.05)
+            self.store.set_price("CMCL", round(px, 4), date=d_str, currency="USD", save=False)
+        self.assertEqual(len(self.store.state["history"]["CMCL"]), 45)
+
+        # 2. Below minimum-episode safety gate -> Accumulating History, baseline untouched
+        brain_small = _default_mahoraga_brain()
+        small_eps = [
+            {
+                "date": f"2026-10-{i+1:02d}",
+                "symbol": "CMCL",
+                "source": "H3",
+                "feat_vec": _mahoraga_feature_vector({"dip_30d": 5.0, "regime_score": 1.0, "is_zse": False}),
+                "y": 1.0,
+                "net_pnl_pct": 4.0,
+            }
+            for i in range(GROK_MIN_EPISODES - 1)
+        ]
+        _train_grokking_model(brain_small, small_eps, today_str="2026-11-17")
+        self.assertFalse(brain_small["grok"]["enabled"])
+        self.assertEqual(brain_small["grok"]["status"], "Accumulating History")
+
+        # 3. Non-linear XOR-like interaction (win when dip & regime agree or both mild; linear fails badly)
+        brain_nl = _default_mahoraga_brain()
+        base_fv = _mahoraga_feature_vector({"dip_30d": 12.0, "rsi14": 25.0, "regime_score": -1.0, "is_zse": False})
+        pred_before = _mahoraga_predict(brain_nl, base_fv, "Dip Reversal", is_zse=False)
+        nl_eps = []
+        for idx in range(44):
+            dt = (start_dt + timedelta(days=idx)).isoformat()
+            pat = idx % 4
+            if pat == 0:
+                dip, rsi, reg, y = 12.0, 25.0, 1.0, 1.0
+            elif pat == 1:
+                dip, rsi, reg, y = 12.0, 25.0, -1.0, 0.0
+            elif pat == 2:
+                dip, rsi, reg, y = 0.0, 62.0, -1.0, 1.0
+            else:
+                dip, rsi, reg, y = 0.0, 62.0, 1.0, 0.0
+            fv = _mahoraga_feature_vector({
+                "dip_30d": dip,
+                "rsi14": rsi,
+                "regime_score": reg,
+                "spread_pct": 1.2,
+                "is_zse": False,
+            })
+            nl_eps.append({
+                "date": dt,
+                "symbol": "CMCL",
+                "source": "H4",
+                "feat_vec": fv,
+                "y": y,
+                "net_pnl_pct": 5.0 if y > 0.5 else -4.0,
+            })
+        _train_grokking_model(brain_nl, nl_eps, today_str="2026-11-17", epochs=180)
+        self.assertTrue(brain_nl["grok"]["enabled"])
+        self.assertEqual(brain_nl["grok"]["status"], "Grokked (Active)")
+        self.assertGreater(brain_nl["grok"]["metrics"]["val_acc_pct"], brain_nl["grok"]["metrics"]["linear_val_acc_pct"])
+        self.assertLess(brain_nl["grok"]["metrics"]["grok_val_loss"], brain_nl["grok"]["metrics"]["linear_val_loss"])
+        pred_after = _mahoraga_predict(brain_nl, base_fv, "Dip Reversal", is_zse=False)
+        self.assertLess(pred_after["win_prob_pct"], pred_before["win_prob_pct"])
+
+        # 4. End-to-end store training on >= 45d history exposes brain["grok"] telemetry
+        summary = self.store.train_paper_agent_brain(days=180)
+        gk_ui = summary["brain"]["grok"]
+        self.assertIn("status", gk_ui)
+        self.assertIn("metrics", gk_ui)
+        built = _build_history_episodes(self.store.get_paper_agent_state(), self.store.state["history"], self.store.state["prices"])
+        self.assertGreaterEqual(len(built), 30)
+
+    def test_voms_wallet_balance_ctrade_cash_fields_and_idle_cash_deployment(self) -> None:
+        from unittest.mock import patch
+
+        # 1. C-TRADE camelCase / PascalCase balance keys
+        self.assertEqual(self.store._extract_ctrade_cash({"actualCashBal": 1.441, "cashBal": 1.441}), 1.441)
+        self.assertEqual(self.store._extract_ctrade_cash([{"CashBal": "12.50", "ActualCashBal": "12.50"}]), 12.50)
+
+        # 2. VOMS /wallet/balance + /transactions extraction (with held funds deduction)
+        self.store.set_price("FCA", 0.16, currency="USD", best_bid=0.158, best_ask=0.16, save=False)
+        self.store.set_price("CMCL", 35.0, currency="USD", best_bid=34.5, best_ask=35.0, save=False)
+        self.store.set_price("ARTD.ZW", 0.18, currency="ZWG", best_bid=0.175, best_ask=0.18, save=False)
+
+        def fake_voms_req(url: str, method: str = "GET", body=None, token=None):
+            if url.endswith("/holdings"):
+                return {"status": "SUCCESS", "data": {"equity": [{"symbol": "FCA.VX", "volume": "10", "closingPrice": 0.16}]}}
+            if url.endswith("/wallet/balance"):
+                return {"status": "SUCCESS", "data": {"balance": 5.50, "heldFundsBalance": 0.50, "currency": "USD"}}
+            if url.endswith("/transactions"):
+                return {"status": "SUCCESS", "data": {"transactions": [{"transactionId": "T1", "transactionTypeSlug": "WALLET_TOP_UP", "amount": 5.50, "status": "COMPLETED", "paymentGateway": "ECOCASH", "createdAt": "2026-11-17T10:00:00"}]}}
+            raise ValueError("HTTP 500")
+
+        with patch.object(self.store, "_voms_request", side_effect=fake_voms_req):
+            sync_res = self.store._voms_sync_with_token("vfex_direct", "tok123")
+        self.assertEqual(sync_res["cash_usd"], 5.50)
+        self.assertEqual(sync_res["held_usd"], 0.50)
+
+        # Add C-TRADE unused ZWG cash
+        self.store.state["synced_accounts"]["ctrade"] = {
+            "holdings": [],
+            "cash_usd": 0.0,
+            "cash_zwg": 1.44,
+            "held_usd": 0.0,
+            "held_zwg": 0.0,
+            "transactions": [],
+            "orders": [],
+            "last_sync": "2026-11-17T11:52:00+00:00",
+        }
+        plan = self.store.idle_cash_deployment(include_zse=True)
+        # Deployable USD = 5.50 - 0.50 = 5.00
+        self.assertEqual(plan["total_deployable_usd"], 5.00)
+        self.assertEqual(plan["total_deployable_zwg"], 1.44)
+        fca_pick = next((p for p in plan["usd_picks"] if p["symbol"] == "FCA"), None)
+        self.assertIsNotNone(fca_pick)
+        self.assertGreaterEqual(fca_pick["max_shares"], 25)
+        self.assertLessEqual(fca_pick["net_cost"], 5.00)
+        zwg_pick = next((p for p in plan["zwg_picks"] if p["symbol"] == "ARTD.ZW"), None)
+        self.assertIsNotNone(zwg_pick)
+        self.assertGreaterEqual(zwg_pick["max_shares"], 5)
+        self.assertLessEqual(zwg_pick["net_cost"], 1.44)
+
+        # Tiny balance that cannot cover 1 share -> gap_for_one reported cleanly
+        self.store.state["synced_accounts"]["vfex_direct"]["cash_usd"] = 0.60
+        self.store.state["synced_accounts"]["vfex_direct"]["held_usd"] = 0.50  # 0.10 deployable < FCA 0.16
+        self.store.state["synced_accounts"]["ctrade"]["cash_zwg"] = 0.0
+        tiny_plan = self.store.idle_cash_deployment(include_zse=True)
+        self.assertEqual(tiny_plan["usd_picks"], [])
+        self.assertIsNotNone(tiny_plan["usd_gap_for_one"])
+        self.assertGreater(tiny_plan["usd_gap_for_one"], 0.0)
 
 
 if __name__ == "__main__":

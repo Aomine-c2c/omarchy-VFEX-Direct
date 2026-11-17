@@ -5232,6 +5232,71 @@ Panel {
                         }
                     }
 
+                    // Unused Portal Balances Deployment Advisor
+                    Rectangle {
+                        id: idleCashCard
+                        property var icp: (root.summaryData.idle_cash_plan || ({}))
+                        property real depUsd: Number(icp.total_deployable_usd || 0)
+                        property real depZwg: Number(icp.total_deployable_zwg || 0)
+                        width: parent.width
+                        visible: (icp.accounts || []).length > 0 || depUsd > 0 || depZwg > 0
+                        height: idleCashCol.implicitHeight + Style.space(14)
+                        radius: 8; color: "#181825"; border.color: (depUsd > 0 || depZwg > 0) ? "#a6e3a1" : "#313244"; border.width: 1
+                        Column {
+                            id: idleCashCol
+                            anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(7) }
+                            spacing: Style.space(5)
+                            Row {
+                                width: parent.width
+                                Text {
+                                    width: parent.width * 0.56
+                                    text: "Unused Portal Balances Deployment"
+                                    color: "#a6e3a1"; font.pixelSize: Style.font.body; font.bold: true; elide: Text.ElideRight
+                                }
+                                Text {
+                                    width: parent.width * 0.44; horizontalAlignment: Text.AlignRight
+                                    text: "Deployable: $" + idleCashCard.depUsd.toFixed(2) + " USD • ZiG " + idleCashCard.depZwg.toFixed(2)
+                                    color: "#89dceb"; font.pixelSize: 9; font.bold: true; elide: Text.ElideLeft
+                                }
+                            }
+                            Flow {
+                                width: parent.width; spacing: 6
+                                Repeater {
+                                    model: idleCashCard.icp.accounts || []
+                                    delegate: Rectangle {
+                                        width: acChipTxt.implicitWidth + 12; height: Style.space(18); radius: 4
+                                        color: "#11111b"; border.color: (Number(modelData.deployable_usd || 0) > 0 || Number(modelData.deployable_zwg || 0) > 0) ? "#89b4fa" : "#313244"; border.width: 1
+                                        Text {
+                                            id: acChipTxt; anchors.centerIn: parent
+                                            text: modelData.title + ": $" + Number(modelData.deployable_usd || 0).toFixed(2) + " USD • ZiG " + Number(modelData.deployable_zwg || 0).toFixed(2) + ((Number(modelData.held_usd || 0) > 0 || Number(modelData.held_zwg || 0) > 0) ? " (held deducted)" : "")
+                                            color: "#cdd6f4"; font.pixelSize: 8; font.bold: true
+                                        }
+                                    }
+                                }
+                            }
+                            Text {
+                                visible: (idleCashCard.icp.usd_picks || []).length === 0 && (idleCashCard.icp.zwg_picks || []).length === 0
+                                width: parent.width; wrapMode: Text.WordWrap
+                                text: (idleCashCard.depUsd <= 0 && idleCashCard.depZwg <= 0)
+                                    ? "All connected portal cash is deployed or $0.00. Sync portals in Tab 4 after a deposit or order expiry to refresh unused balances."
+                                    : ("Idle balances cannot yet cover 1 whole share + broker fees"
+                                        + (idleCashCard.icp.usd_gap_for_one !== null && idleCashCard.icp.usd_gap_for_one !== undefined ? (" • USD Top-Up Needed: +$" + Number(idleCashCard.icp.usd_gap_for_one).toFixed(2)) : "")
+                                        + (idleCashCard.icp.zwg_gap_for_one !== null && idleCashCard.icp.zwg_gap_for_one !== undefined ? (" • ZiG Top-Up Needed: +ZiG " + Number(idleCashCard.icp.zwg_gap_for_one).toFixed(2)) : ""))
+                                color: "#a6adc8"; font.pixelSize: 9
+                            }
+                            Repeater {
+                                model: (idleCashCard.icp.usd_picks || []).slice(0, 3).concat((idleCashCard.icp.zwg_picks || []).slice(0, 3))
+                                delegate: Row {
+                                    width: idleCashCol.width
+                                    Text { width: idleCashCol.width * 0.16; text: modelData.symbol; color: "#a6e3a1"; font.pixelSize: 9; font.bold: true }
+                                    Text { width: idleCashCol.width * 0.34; text: "Buy " + modelData.max_shares + " shares @ " + root.fmtPrice(modelData.exec_price, modelData.currency); color: "#cdd6f4"; font.pixelSize: 9; elide: Text.ElideRight }
+                                    Text { width: idleCashCol.width * 0.28; text: "Cost " + root.fmtShortMoney(modelData.net_cost, modelData.currency) + " (incl. fees)"; color: "#89dceb"; font.pixelSize: 9; elide: Text.ElideRight }
+                                    Text { width: idleCashCol.width * 0.22; horizontalAlignment: Text.AlignRight; text: "Score " + modelData.score + " • " + Number(modelData.win_prob_pct || 50).toFixed(0) + "% win"; color: "#cba6f7"; font.pixelSize: 9; font.bold: true }
+                                }
+                            }
+                        }
+                    }
+
                     // Dedicated Dollar-Cost Averaging Investment Planner
                     Rectangle {
                         width: parent.width
@@ -5246,6 +5311,23 @@ Panel {
                                 Text { width: parent.width - dcaBudgetRow.width - Style.space(6); anchors.verticalCenter: parent.verticalCenter; text: "Dollar-Cost Averaging Investment Planner"; color: "#cba6f7"; font.pixelSize: Style.font.body; font.bold: true; elide: Text.ElideRight }
                                 Row {
                                     id: dcaBudgetRow; spacing: Style.space(4); anchors.verticalCenter: parent.verticalCenter
+                                    Rectangle {
+                                        visible: Number((root.summaryData.idle_cash_plan || ({})).total_deployable_usd || 0) > 0
+                                        width: dcaIdleTxt.implicitWidth + 10; height: Style.space(22); radius: 4; color: "#243b2c"; border.color: "#a6e3a1"; border.width: 1
+                                        Text {
+                                            id: dcaIdleTxt; anchors.centerIn: parent
+                                            text: "Use Unused ($" + Number((root.summaryData.idle_cash_plan || ({})).total_deployable_usd || 0).toFixed(2) + ")"
+                                            color: "#a6e3a1"; font.pixelSize: 9; font.bold: true
+                                        }
+                                        MouseArea {
+                                            anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !dcaProc.running
+                                            onClicked: {
+                                                var uAmt = Number((root.summaryData.idle_cash_plan || ({})).total_deployable_usd || 0).toFixed(2)
+                                                root.dcaBudgetText = uAmt
+                                                root.runDcaBudget(uAmt)
+                                            }
+                                        }
+                                    }
                                     Rectangle {
                                         width: Style.space(90); height: Style.space(22); radius: 4; color: "#313244"; border.color: "#45475a"; border.width: 1
                                         TextInput {
@@ -6018,20 +6100,20 @@ Panel {
 
                             Rectangle {
                                 width: parent.width
-                                visible: ((root.summaryData.portal_orders || []).length > 0) || ((root.summaryData.portal_transactions || []).length > 0) || Number(((root.summaryData.accounts || ({})).ctrade || ({})).cash_usd || 0) > 0 || Number(((root.summaryData.accounts || ({})).ctrade || ({})).cash_zwg || 0) > 0
+                                visible: ((root.summaryData.portal_orders || []).length > 0) || ((root.summaryData.portal_transactions || []).length > 0) || Number(root.summaryData.wallet_cash_usd || 0) > 0 || Number(root.summaryData.wallet_cash_zwg || 0) > 0
                                 height: portalSyncCol.implicitHeight + Style.space(14)
                                 radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
                                 Column {
                                     id: portalSyncCol
                                     anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(7) }
                                     spacing: Style.space(4)
-                                    property var ctMeta: ((root.summaryData.accounts || ({})).ctrade || ({}))
+                                    property var icp4: (root.summaryData.idle_cash_plan || ({}))
                                     Row {
                                         width: parent.width
-                                        Text { width: parent.width * 0.55; text: "Synced C-TRADE Cash, Orders & History"; color: "#89dceb"; font.pixelSize: Style.font.body; font.bold: true }
+                                        Text { width: parent.width * 0.55; text: "Synced Portal Cash, Orders & History"; color: "#89dceb"; font.pixelSize: Style.font.body; font.bold: true }
                                         Text {
                                             width: parent.width * 0.45; horizontalAlignment: Text.AlignRight
-                                            text: "Cash: $" + Number(portalSyncCol.ctMeta.cash_usd || 0).toFixed(2) + " USD • ZiG " + Number(portalSyncCol.ctMeta.cash_zwg || 0).toFixed(2)
+                                            text: "Idle Cash: $" + Number(portalSyncCol.icp4.total_deployable_usd || root.summaryData.wallet_cash_usd || 0).toFixed(2) + " USD • ZiG " + Number(portalSyncCol.icp4.total_deployable_zwg || root.summaryData.wallet_cash_zwg || 0).toFixed(2)
                                             color: "#a6e3a1"; font.pixelSize: 9; font.bold: true; elide: Text.ElideLeft
                                         }
                                     }
@@ -6442,7 +6524,7 @@ Panel {
                                     Rectangle {
                                         width: trnLbl.implicitWidth + 10; height: Style.space(22); radius: 4; color: "#272138"; border.color: "#cba6f7"; border.width: 1
                                         Text { id: trnLbl; anchors.centerIn: parent; text: "☸ Train"; color: "#cba6f7"; font.pixelSize: 9; font.bold: true }
-                                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running; onClicked: root.runAgentCli(["train", "--days", "30"]) }
+                                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running; onClicked: root.runAgentCli(["train", "--days", "180"]) }
                                     }
                                     Rectangle {
                                         width: rplLbl.implicitWidth + 10; height: Style.space(22); radius: 4; color: "#1e2e4a"; border.color: "#89b4fa"; border.width: 1
@@ -6827,6 +6909,51 @@ Panel {
                                         property var ep: (agentTabCol.paBrain.exit_policy || ({}))
                                         text: "Exit Policy: Caution Tier " + Number(ep.caution_exit_strictness || 0) + " • Take +" + Number(ep.swing_take_pct || 4.5).toFixed(1) + "% / ZSE +" + Number(ep.zse_take_pct || 6.5).toFixed(1) + "% • Stop " + Number(ep.hard_stop_pct || -8.0).toFixed(1) + "%"
                                         color: "#94e2d5"; font.pixelSize: 8; elide: Text.ElideRight
+                                    }
+                                    Rectangle {
+                                        id: gkBox
+                                        property var gk: (agentTabCol.paBrain.grok || ({}))
+                                        property var gm: (gk.metrics || ({}))
+                                        property string gkSt: String(gk.status || "Accumulating History")
+                                        width: parent.width
+                                        height: gkCol.implicitHeight + 10
+                                        radius: 5
+                                        color: "#11111b"
+                                        border.color: gkBox.gkSt === "Grokked (Active)" ? "#a6e3a1" : (gkBox.gkSt === "Memorizing (Gated)" ? "#f9e2af" : "#313244")
+                                        border.width: 1
+                                        Column {
+                                            id: gkCol
+                                            anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: 6 }
+                                            spacing: 2
+                                            Row {
+                                                width: parent.width
+                                                Text { width: parent.width * 0.56; text: "Grokking Generalization Engine"; color: "#cba6f7"; font.pixelSize: 8; font.bold: true; elide: Text.ElideRight }
+                                                Text {
+                                                    width: parent.width * 0.44; horizontalAlignment: Text.AlignRight
+                                                    text: gkBox.gkSt
+                                                    color: gkBox.gkSt === "Grokked (Active)" ? "#a6e3a1" : (gkBox.gkSt === "Memorizing (Gated)" ? "#f9e2af" : "#9399b2")
+                                                    font.pixelSize: 8; font.bold: true; elide: Text.ElideLeft
+                                                }
+                                            }
+                                            Text {
+                                                visible: Number(gkBox.gm.episodes_total || 0) < Number(gkBox.gm.min_episodes || 18)
+                                                width: parent.width; elide: Text.ElideRight
+                                                text: "Dataset: " + Number(gkBox.gm.episodes_total || 0) + "/" + Number(gkBox.gm.min_episodes || 18) + " chronological episodes needed for 70/30 out-of-sample split"
+                                                color: "#a6adc8"; font.pixelSize: 8
+                                            }
+                                            Text {
+                                                visible: Number(gkBox.gm.episodes_total || 0) >= Number(gkBox.gm.min_episodes || 18)
+                                                width: parent.width; elide: Text.ElideRight
+                                                text: "Train Accuracy: " + Number(gkBox.gm.train_acc_pct || 0).toFixed(1) + "% (" + Number(gkBox.gm.train_count || 0) + ") • Validation Accuracy: " + Number(gkBox.gm.val_acc_pct || 0).toFixed(1) + "% (" + Number(gkBox.gm.val_count || 0) + ")"
+                                                color: "#cdd6f4"; font.pixelSize: 8
+                                            }
+                                            Text {
+                                                visible: Number(gkBox.gm.episodes_total || 0) >= Number(gkBox.gm.min_episodes || 18)
+                                                width: parent.width; elide: Text.ElideRight
+                                                text: "Epoch " + Number(gkBox.gm.best_epoch || 0) + "/" + Number(gkBox.gm.epochs_run || 0) + " • Weight L2 Norm: " + Number(gkBox.gm.weight_l2_norm || 0).toFixed(2) + " • Validation Loss " + Number(gkBox.gm.grok_val_loss || 0).toFixed(3) + " vs Linear " + Number(gkBox.gm.linear_val_loss || 0).toFixed(3)
+                                                color: "#89dceb"; font.pixelSize: 8
+                                            }
+                                        }
                                     }
                                     Repeater {
                                         model: [

@@ -1030,6 +1030,42 @@ def _default_paper_weights() -> dict[str, Any]:
 
 
 PAPER_PLAYBOOKS = ("Dip Reversal", "Book Imbalance", "News Catalyst", "DTR Flow")
+GROK_FEATURE_KEYS = ("bias", "dip", "rsi_oversold", "book", "news", "volume", "regime", "spread", "zse")
+GROK_MIN_EPISODES = 18
+GROK_HIDDEN_DIM = 6
+
+
+def _default_grok_state() -> dict[str, Any]:
+    """Initialize Grokking-inspired residual neural trainer and generalization gate."""
+    return {
+        "enabled": False,
+        "status": "Accumulating History",
+        "feature_order": list(GROK_FEATURE_KEYS),
+        "hidden_dim": GROK_HIDDEN_DIM,
+        "residual_alpha": 0.45,
+        "W1": [],
+        "b1": [],
+        "W2": [],
+        "b2": 0.0,
+        "metrics": {
+            "episodes_total": 0,
+            "min_episodes": GROK_MIN_EPISODES,
+            "train_count": 0,
+            "val_count": 0,
+            "epochs_run": 0,
+            "best_epoch": 0,
+            "train_acc_pct": 0.0,
+            "val_acc_pct": 0.0,
+            "linear_val_loss": 0.0,
+            "grok_val_loss": 0.0,
+            "linear_val_acc_pct": 0.0,
+            "val_gain_pct": 0.0,
+            "weight_l2_norm": 0.0,
+            "initial_weight_l2_norm": 0.0,
+            "generalization_gap_pct": 0.0,
+            "last_trained": "",
+        },
+    }
 
 
 def _default_exit_policy() -> dict[str, Any]:
@@ -1067,6 +1103,7 @@ def _default_mahoraga_brain() -> dict[str, Any]:
         "payoffs": {"avg_win_pct": 8.5, "avg_loss_pct": 5.0},
         "immunities": {},
         "exit_policy": _default_exit_policy(),
+        "grok": _default_grok_state(),
     }
 
 
@@ -1147,6 +1184,26 @@ def _mahoraga_feature_vector(feats: dict[str, Any]) -> dict[str, float]:
     }
 
 
+def _grok_mlp_logit(grok: dict[str, Any], feat_vec: dict[str, float]) -> float:
+    """Forward pass of compact 9 -> H -> 1 tanh residual network (pure Python)."""
+    import math
+
+    w1 = grok.get("W1") or []
+    b1 = grok.get("b1") or []
+    w2 = grok.get("W2") or []
+    if not w1 or not b1 or not w2 or len(w1) != len(w2) or len(b1) != len(w2):
+        return 0.0
+    keys = grok.get("feature_order") or list(GROK_FEATURE_KEYS)
+    x = [float(feat_vec.get(k, 0.0)) for k in keys]
+    out = float(grok.get("b2") or 0.0)
+    for j, row in enumerate(w1):
+        if len(row) != len(x):
+            return 0.0
+        pre = float(b1[j]) + sum(float(row[i]) * x[i] for i in range(len(x)))
+        out += float(w2[j]) * math.tanh(max(-6.0, min(6.0, pre)))
+    return max(-4.0, min(4.0, out))
+
+
 def _mahoraga_predict(
     brain: dict[str, Any],
     feat_vec: dict[str, float],
@@ -1166,6 +1223,9 @@ def _mahoraga_predict(
 
     z = sum(float(lw.get(k, 0.0)) * float(v) for k, v in feat_vec.items())
     z += (pb_mult - 1.0) * 1.15
+    grok = brain.get("grok") or {}
+    if grok.get("enabled") and grok.get("W1") and grok.get("W2"):
+        z += float(grok.get("residual_alpha") or 0.45) * _grok_mlp_logit(grok, feat_vec)
     z = max(-6.0, min(6.0, z))
     prob = 1.0 / (1.0 + math.exp(-z))
     fee_drag = 4.38 if is_zse else 2.08
@@ -1178,6 +1238,374 @@ def _mahoraga_predict(
         "ucb_edge_pct": round(exp_net + ucb_bonus, 2),
         "pb_mult": round(pb_mult, 2),
     }
+
+
+def _build_history_episodes(
+    agent: dict[str, Any],
+    history_map: dict[str, list[dict[str, Any]]],
+    prices_map: dict[str, dict[str, Any]],
+    horizon_days: int = 4,
+) -> list[dict[str, Any]]:
+    """Build strictly chronological labeled episodes (zero lookahead) from OHLC history, trades, and shadows."""
+    # Compute historical per-date market breadth regime strictly from cross-sectional prior closes
+    date_rets: dict[str, list[float]] = {}
+    clean_by_sym: dict[str, list[dict[str, Any]]] = {}
+    for sym, raw_rows in (history_map or {}).items():
+        clean = _dedupe_sorted_history(raw_rows)
+        if not clean:
+            continue
+        clean_by_sym[sym] = clean
+        for i in range(1, len(clean)):
+            dt = str(clean[i].get("date") or "")
+            c_prev = float(clean[i - 1].get("close", clean[i - 1].get("price")) or 0.0)
+            c_cur = float(clean[i].get("close", clean[i].get("price")) or 0.0)
+            if dt and c_prev > 0 and c_cur > 0:
+                date_rets.setdefault(dt, []).append(((c_cur - c_prev) / c_prev) * 100.0)
+
+    regime_by_date: dict[str, float] = {}
+    for dt, rets in date_rets.items():
+        tot = len(rets)
+        adv = sum(1 for r in rets if r > 0.1)
+        dec = sum(1 for r in rets if r < -0.1)
+        br = ((adv - dec) / tot) if tot > 0 else 0.0
+        regime_by_date[dt] = 1.0 if br >= 0.12 else (-1.0 if br <= -0.12 else 0.0)
+
+    episodes: list[dict[str, Any]] = []
+    seen_keys: set[tuple[str, str, str]] = set()
+    horizons = (3, horizon_days) if horizon_days != 3 else (3, 5)
+
+    for sym, clean in clean_by_sym.items():
+        if len(clean) < 7:
+            continue
+        meta = prices_map.get(sym) or {}
+        cur_code = infer_currency(sym, meta)
+        is_zse = (cur_code == "ZWG")
+        for h in horizons:
+            for idx in range(3, len(clean) - h):
+                row_t = clean[idx]
+                row_f = clean[idx + h]
+                dt = str(row_t.get("date") or "")
+                px_t = float(row_t.get("close", row_t.get("price")) or 0.0)
+                px_f = float(row_f.get("close", row_f.get("price")) or 0.0)
+                if not dt or px_t <= 0 or px_f <= 0:
+                    continue
+                k = (dt, sym, f"H{h}")
+                if k in seen_keys:
+                    continue
+                seen_keys.add(k)
+                window = clean[max(0, idx - 29): idx + 1]
+                tech = compute_symbol_technicals(window, px_t)
+                hi = float(row_t.get("high") or px_t)
+                lo = float(row_t.get("low") or px_t)
+                candle_sp = ((hi - lo) / px_t * 100.0) if hi > lo and px_t > 0 else 1.5
+                spread_pct = round(max(0.5, min(6.0, candle_sp)), 2)
+                feat_vec = _mahoraga_feature_vector({
+                    "dip_30d": max(0.0, float(tech["drop30"] or 0.0)),
+                    "rsi14": tech["rsi14"],
+                    "book_ratio": 1.0,
+                    "news_impact": 0.0,
+                    "spread_pct": spread_pct,
+                    "vol_pts": 0.0,
+                    "regime_score": regime_by_date.get(dt, 0.0),
+                    "is_zse": is_zse,
+                })
+                buy_n = calculate_trade_charges(cur_code, "BUY", 100.0, px_t)
+                sell_n = calculate_trade_charges(cur_code, "SELL", 100.0, px_f)
+                net_pct = (
+                    ((sell_n["net_settlement"] - buy_n["net_settlement"]) / buy_n["net_settlement"]) * 100.0
+                    if buy_n["net_settlement"] > 0 else 0.0
+                )
+                episodes.append({
+                    "date": dt,
+                    "symbol": sym,
+                    "source": f"H{h}",
+                    "feat_vec": feat_vec,
+                    "y": 1.0 if net_pct >= 0.5 else 0.0,
+                    "net_pnl_pct": round(net_pct, 2),
+                })
+
+    for sh in (agent.get("shadows") or []):
+        if not sh.get("resolved") or sh.get("shadow_net_pct") is None:
+            continue
+        dt = str(sh.get("date") or "")
+        sym = str(sh.get("symbol") or "")
+        fv = sh.get("feat_vec") or {}
+        if not dt or not sym or not fv:
+            continue
+        k = (dt, sym, "SHADOW")
+        if k in seen_keys:
+            continue
+        seen_keys.add(k)
+        net_pct = float(sh.get("shadow_net_pct") or 0.0)
+        episodes.append({
+            "date": dt,
+            "symbol": sym,
+            "source": "SHADOW",
+            "feat_vec": fv,
+            "y": 1.0 if net_pct >= 0.5 else 0.0,
+            "net_pnl_pct": round(net_pct, 2),
+        })
+
+    for tr in (agent.get("trades") or []):
+        if tr.get("side") != "SELL":
+            continue
+        dt = str(tr.get("date") or "")
+        sym = str(tr.get("symbol") or "")
+        tfeats = tr.get("entry_features") or {}
+        fv = tr.get("entry_feat_vec") or (_mahoraga_feature_vector(tfeats) if tfeats else {})
+        if not dt or not sym or not fv:
+            continue
+        k = (dt, sym, "TRADE")
+        if k in seen_keys:
+            continue
+        seen_keys.add(k)
+        net_pct = float(tr.get("net_pnl_pct") or 0.0)
+        episodes.append({
+            "date": dt,
+            "symbol": sym,
+            "source": "TRADE",
+            "feat_vec": fv,
+            "y": 1.0 if net_pct >= 0.5 else 0.0,
+            "net_pnl_pct": round(net_pct, 2),
+        })
+
+    episodes.sort(key=lambda e: (e["date"], e["symbol"], e["source"]))
+    return episodes[-1200:]
+
+
+def _train_grokking_model(
+    brain: dict[str, Any],
+    episodes: list[dict[str, Any]],
+    today_str: str,
+    epochs: int = 160,
+    lr: float = 0.06,
+    weight_decay: float = 0.14,
+    ema_alpha: float = 0.85,
+    ema_lamb: float = 1.5,
+    seed: int = 42,
+) -> dict[str, Any]:
+    """Multi-epoch Grokfast EMA + heavy L2 weight decay over 70/30 chronological split with OOS gate."""
+    import copy
+    import math
+    import random
+
+    grok = brain.setdefault("grok", _default_grok_state())
+    metrics = grok.setdefault("metrics", dict(_default_grok_state()["metrics"]))
+    keys = list(grok.get("feature_order") or GROK_FEATURE_KEYS)
+    h_dim = int(grok.get("hidden_dim") or GROK_HIDDEN_DIM)
+    alpha = float(grok.get("residual_alpha") or 0.45)
+
+    n_total = len(episodes)
+    metrics["episodes_total"] = n_total
+    metrics["min_episodes"] = GROK_MIN_EPISODES
+    metrics["last_trained"] = today_str
+
+    if n_total < GROK_MIN_EPISODES:
+        grok["enabled"] = False
+        grok["status"] = "Accumulating History"
+        metrics.update({
+            "train_count": 0,
+            "val_count": 0,
+            "epochs_run": 0,
+            "best_epoch": 0,
+            "train_acc_pct": 0.0,
+            "val_acc_pct": 0.0,
+            "linear_val_loss": 0.0,
+            "grok_val_loss": 0.0,
+            "linear_val_acc_pct": 0.0,
+            "val_gain_pct": 0.0,
+            "weight_l2_norm": 0.0,
+            "initial_weight_l2_norm": 0.0,
+            "generalization_gap_pct": 0.0,
+        })
+        return grok
+
+    val_len = max(5, int(round(n_total * 0.30)))
+    split_idx = n_total - val_len
+    if split_idx < 10:
+        grok["enabled"] = False
+        grok["status"] = "Accumulating History"
+        return grok
+
+    train_ep = episodes[:split_idx]
+    val_ep = episodes[split_idx:]
+    lw = brain.get("logistic_weights") or {}
+
+    def _prep(ep_list: list[dict[str, Any]]) -> list[tuple[list[float], float, float]]:
+        out: list[tuple[list[float], float, float]] = []
+        for ep in ep_list:
+            fv = ep.get("feat_vec") or {}
+            xv = [float(fv.get(k, 0.0)) for k in keys]
+            base_z = sum(float(lw.get(k, 0.0)) * float(fv.get(k, 0.0)) for k in keys)
+            out.append((xv, float(ep.get("y") or 0.0), max(-5.0, min(5.0, base_z))))
+        return out
+
+    train_data = _prep(train_ep)
+    val_data = _prep(val_ep)
+
+    def _sigmoid(z_val: float) -> float:
+        zc = max(-12.0, min(12.0, z_val))
+        return 1.0 / (1.0 + math.exp(-zc))
+
+    def _bce(p: float, y: float) -> float:
+        pc = max(1e-7, min(1.0 - 1e-7, p))
+        return -(y * math.log(pc) + (1.0 - y) * math.log(1.0 - pc))
+
+    # Evaluate linear baseline strictly on validation split
+    lin_loss = sum(_bce(_sigmoid(bz), y) for _, y, bz in val_data) / len(val_data)
+    lin_acc = sum(1 for _, y, bz in val_data if (_sigmoid(bz) >= 0.5) == (y >= 0.5)) / len(val_data)
+
+    in_dim = len(keys)
+    rng = random.Random(seed)
+    w1 = [[rng.gauss(0.0, 0.35) for _ in range(in_dim)] for _ in range(h_dim)]
+    b1 = [0.0 for _ in range(h_dim)]
+    w2 = [rng.gauss(0.0, 0.25) for _ in range(h_dim)]
+    b2 = 0.0
+
+    def _l2_norm() -> float:
+        sq = sum(v * v for row in w1 for v in row) + sum(v * v for v in w2)
+        return math.sqrt(sq)
+
+    init_norm = _l2_norm()
+
+    # Grokfast EMA buffers + Adam moments
+    ema_w1 = [[0.0] * in_dim for _ in range(h_dim)]
+    ema_b1 = [0.0] * h_dim
+    ema_w2 = [0.0] * h_dim
+    ema_b2 = 0.0
+
+    m_w1 = [[0.0] * in_dim for _ in range(h_dim)]
+    v_w1 = [[0.0] * in_dim for _ in range(h_dim)]
+    m_b1 = [0.0] * h_dim
+    v_b1 = [0.0] * h_dim
+    m_w2 = [0.0] * h_dim
+    v_w2 = [0.0] * h_dim
+    m_b2 = 0.0
+    v_b2 = 0.0
+
+    def _eval_split(data: list[tuple[list[float], float, float]], cw1: list[list[float]], cb1: list[float], cw2: list[float], cb2: float) -> tuple[float, float]:
+        loss_s = 0.0
+        correct = 0
+        for xv, y, bz in data:
+            res = cb2
+            for j in range(h_dim):
+                pre = cb1[j] + sum(cw1[j][i] * xv[i] for i in range(in_dim))
+                res += cw2[j] * math.tanh(max(-6.0, min(6.0, pre)))
+            res = max(-4.0, min(4.0, res))
+            p = _sigmoid(bz + alpha * res)
+            loss_s += _bce(p, y)
+            if (p >= 0.5) == (y >= 0.5):
+                correct += 1
+        return loss_s / len(data), correct / len(data)
+
+    best_val_loss = lin_loss
+    best_val_acc = lin_acc
+    best_train_acc = sum(1 for _, y, bz in train_data if (_sigmoid(bz) >= 0.5) == (y >= 0.5)) / len(train_data)
+    best_epoch = 0
+    best_norm = init_norm
+    best_weights = (copy.deepcopy(w1), list(b1), list(w2), float(b2))
+
+    beta1, beta2, eps = 0.9, 0.99, 1e-8
+    n_tr = float(len(train_data))
+
+    for ep_i in range(1, max(20, int(epochs)) + 1):
+        gw1 = [[0.0] * in_dim for _ in range(h_dim)]
+        gb1 = [0.0] * h_dim
+        gw2 = [0.0] * h_dim
+        gb2 = 0.0
+
+        for xv, y, bz in train_data:
+            hs = [0.0] * h_dim
+            res = b2
+            for j in range(h_dim):
+                pre = b1[j] + sum(w1[j][i] * xv[i] for i in range(in_dim))
+                h = math.tanh(max(-6.0, min(6.0, pre)))
+                hs[j] = h
+                res += w2[j] * h
+            res_clamped = max(-4.0, min(4.0, res))
+            p = _sigmoid(bz + alpha * res_clamped)
+            dl_dz = (p - y) / n_tr
+            dl_dres = dl_dz * alpha
+
+            gb2 += dl_dres
+            for j in range(h_dim):
+                gw2[j] += dl_dres * hs[j]
+                dl_dpre = dl_dres * w2[j] * (1.0 - hs[j] * hs[j])
+                gb1[j] += dl_dpre
+                row_g = gw1[j]
+                for i in range(in_dim):
+                    row_g[i] += dl_dpre * xv[i]
+
+        b1_corr = 1.0 - (beta1 ** ep_i)
+        b2_corr = 1.0 - (beta2 ** ep_i)
+        wd_scale = max(0.0, 1.0 - lr * weight_decay)
+
+        def _adam_gf_step(param: float, grad: float, ema_g: float, m_val: float, v_val: float, decay: bool = True) -> tuple[float, float, float, float]:
+            new_ema = ema_alpha * ema_g + (1.0 - ema_alpha) * grad
+            g_eff = grad + ema_lamb * new_ema
+            new_m = beta1 * m_val + (1.0 - beta1) * g_eff
+            new_v = beta2 * v_val + (1.0 - beta2) * (g_eff * g_eff)
+            m_hat = new_m / b1_corr
+            v_hat = new_v / b2_corr
+            base_p = (param * wd_scale) if decay else param
+            new_p = base_p - lr * m_hat / (math.sqrt(v_hat) + eps)
+            return max(-3.0, min(3.0, new_p)), new_ema, new_m, new_v
+
+        b2, ema_b2, m_b2, v_b2 = _adam_gf_step(b2, gb2, ema_b2, m_b2, v_b2, decay=False)
+        for j in range(h_dim):
+            w2[j], ema_w2[j], m_w2[j], v_w2[j] = _adam_gf_step(w2[j], gw2[j], ema_w2[j], m_w2[j], v_w2[j], decay=True)
+            b1[j], ema_b1[j], m_b1[j], v_b1[j] = _adam_gf_step(b1[j], gb1[j], ema_b1[j], m_b1[j], v_b1[j], decay=False)
+            for i in range(in_dim):
+                w1[j][i], ema_w1[j][i], m_w1[j][i], v_w1[j][i] = _adam_gf_step(
+                    w1[j][i], gw1[j][i], ema_w1[j][i], m_w1[j][i], v_w1[j][i], decay=True
+                )
+
+        if ep_i >= 5 and (ep_i % 4 == 0 or ep_i == epochs):
+            tr_loss, tr_acc = _eval_split(train_data, w1, b1, w2, b2)
+            va_loss, va_acc = _eval_split(val_data, w1, b1, w2, b2)
+            # Prefer lower validation log-loss once accuracy matches/beats baseline
+            if va_loss < best_val_loss and va_acc >= best_val_acc - 1e-9:
+                best_val_loss = va_loss
+                best_val_acc = va_acc
+                best_train_acc = tr_acc
+                best_epoch = ep_i
+                best_norm = _l2_norm()
+                best_weights = (copy.deepcopy(w1), list(b1), list(w2), float(b2))
+
+    # Measure final epoch metrics if checkpoint stayed at epoch 0 so memorizing phase still shows honest numbers
+    if best_epoch == 0:
+        tr_loss_f, best_train_acc = _eval_split(train_data, w1, b1, w2, b2)
+        best_val_loss, best_val_acc = _eval_split(val_data, w1, b1, w2, b2)
+        best_norm = _l2_norm()
+
+    improved = (best_epoch > 0) and (best_val_loss < lin_loss - 1e-3) and (best_val_acc >= lin_acc - 1e-9)
+    bw1, bb1, bw2, bb2 = best_weights
+    grok["W1"] = [[round(v, 5) for v in row] for row in bw1]
+    grok["b1"] = [round(v, 5) for v in bb1]
+    grok["W2"] = [round(v, 5) for v in bw2]
+    grok["b2"] = round(bb2, 5)
+    grok["enabled"] = bool(improved)
+    grok["status"] = "Grokked (Active)" if improved else "Memorizing (Gated)"
+
+    tr_pct = round(best_train_acc * 100.0, 1)
+    va_pct = round(best_val_acc * 100.0, 1)
+    lin_pct = round(lin_acc * 100.0, 1)
+    metrics.update({
+        "train_count": len(train_ep),
+        "val_count": len(val_ep),
+        "epochs_run": int(epochs),
+        "best_epoch": int(best_epoch),
+        "train_acc_pct": tr_pct,
+        "val_acc_pct": va_pct,
+        "linear_val_loss": round(lin_loss, 4),
+        "grok_val_loss": round(best_val_loss, 4),
+        "linear_val_acc_pct": lin_pct,
+        "val_gain_pct": round(va_pct - lin_pct, 1),
+        "weight_l2_norm": round(best_norm, 3),
+        "initial_weight_l2_norm": round(init_norm, 3),
+        "generalization_gap_pct": round(tr_pct - va_pct, 1),
+    })
+    return grok
 
 
 def _default_paper_agent(starting_usd: float = 100.0, zwg_rate: float = 26.5) -> dict[str, Any]:
@@ -1373,7 +1801,7 @@ class VFEXStore:
                     "price": round(price, 4),
                 })
                 history = _dedupe_sorted_history(history)
-            self.state["history"][sym] = history[-30:]
+            self.state["history"][sym] = history[-180:]
         if save:
             self.save()
 
@@ -2156,6 +2584,170 @@ class VFEXStore:
             })
 
         return {"budget": round(budget, 2), "mode": mode, "plan": plan}
+
+    @staticmethod
+    def _max_affordable_shares(currency: str, price: float, cash_avail: float) -> tuple[int, float]:
+        """Return (max_whole_shares, net_settlement_cost) strictly <= cash_avail after statutory buy fees."""
+        if price <= 0 or cash_avail <= 0:
+            return 0, 0.0
+        one_net = float(calculate_trade_charges(currency, "BUY", 1.0, price)["net_settlement"])
+        if one_net <= 0 or one_net > cash_avail + 1e-9:
+            return 0, round(one_net, 2)
+        hi = max(1, int(cash_avail // price) + 1)
+        lo = 1
+        best_q, best_cost = 1, one_net
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            c = float(calculate_trade_charges(currency, "BUY", float(mid), price)["net_settlement"])
+            if c <= cash_avail + 1e-9:
+                best_q, best_cost = mid, c
+                lo = mid + 1
+            else:
+                hi = mid - 1
+        return best_q, round(best_cost, 2)
+
+    def idle_cash_deployment(
+        self,
+        include_zse: bool = True,
+        news_items: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        """Recommend fee-aware whole-share buys across unused USD & ZWG portal cash balances."""
+        synced = self.state.get("synced_accounts", {})
+        accounts_out: list[dict[str, Any]] = []
+        tot_dep_usd = 0.0
+        tot_dep_zwg = 0.0
+
+        for prov in ("vfex_direct", "ctrade", "zse_direct"):
+            adata = synced.get(prov) or {}
+            status = self._provider_status(prov)
+            c_usd = float(adata.get("cash_usd") or 0.0)
+            c_zwg = float(adata.get("cash_zwg") or 0.0)
+            h_usd = float(adata.get("held_usd") or 0.0)
+            h_zwg = float(adata.get("held_zwg") or 0.0)
+            dep_usd = round(max(0.0, c_usd - h_usd), 2)
+            dep_zwg = round(max(0.0, c_zwg - h_zwg), 2)
+            if status.get("connected") or dep_usd > 0 or dep_zwg > 0:
+                accounts_out.append({
+                    "provider": prov,
+                    "title": PORTAL_LABELS.get(prov, prov),
+                    "connected": bool(status.get("connected")),
+                    "cash_usd": round(c_usd, 2),
+                    "cash_zwg": round(c_zwg, 2),
+                    "held_usd": round(h_usd, 2),
+                    "held_zwg": round(h_zwg, 2),
+                    "deployable_usd": dep_usd,
+                    "deployable_zwg": dep_zwg,
+                })
+            tot_dep_usd += dep_usd
+            tot_dep_zwg += dep_zwg
+
+        tot_dep_usd = round(tot_dep_usd, 2)
+        tot_dep_zwg = round(tot_dep_zwg, 2)
+
+        sig_map = {
+            s["symbol"]: s
+            for s in self.trade_signals(
+                include_zse=include_zse,
+                tracked_only=False,
+                news_items=news_items,
+            )
+        }
+        # Enrich with Mahoraga + Grokking probability estimates
+        agent = self.get_paper_agent_state()
+        brain = self._ensure_agent_brain(agent)
+        cand_rows = self._agent_score_candidates(
+            agent,
+            self.state.get("prices", {}),
+            self.state.get("history", {}),
+            self._news_by_symbol(news_items or []),
+            datetime.now(timezone.utc).date().isoformat(),
+            tracked_only=False,
+            record_shadows=False,
+        )
+        cand_map = {c["symbol"]: c for c in cand_rows}
+
+        def _picks_for_currency(cur_code: str, budget: float) -> tuple[list[dict[str, Any]], float | None, list[dict[str, Any]], float]:
+            ranked: list[dict[str, Any]] = []
+            cheapest_gap: float | None = None
+            for sym, entry in sorted(self.state.get("prices", {}).items()):
+                px_last = float(entry.get("price") or 0.0)
+                if px_last <= 0:
+                    continue
+                if infer_currency(sym, entry) != cur_code:
+                    continue
+                sig = sig_map.get(sym) or {}
+                act = str(sig.get("action") or "HOLD").upper()
+                if act == "SELL":
+                    continue
+                exec_px = float(entry.get("best_ask") or 0.0) or px_last
+                qty, net_cost = self._max_affordable_shares(cur_code, exec_px, budget)
+                sig_score = int(sig.get("score") or 0)
+                cinfo = cand_map.get(sym) or {}
+                win_prob = float(cinfo.get("win_prob_pct") or 50.0)
+                if qty <= 0:
+                    if budget > 0:
+                        one_c = net_cost or float(calculate_trade_charges(cur_code, "BUY", 1.0, exec_px)["net_settlement"])
+                        gap = round(max(0.01, one_c - budget), 2)
+                        if cheapest_gap is None or gap < cheapest_gap:
+                            cheapest_gap = gap
+                    continue
+                conv_rank = (2 if act == "BUY" else 1 if sig_score >= 25 else 0, sig_score, win_prob, -exec_px)
+                ranked.append({
+                    "symbol": sym,
+                    "currency": cur_code,
+                    "action": act if act == "BUY" else "WATCH",
+                    "score": sig_score,
+                    "win_prob_pct": round(win_prob, 1),
+                    "exec_price": round(exec_px, 4),
+                    "max_shares": qty,
+                    "net_cost": net_cost,
+                    "leftover": round(max(0.0, budget - net_cost), 2),
+                    "reasons": list(sig.get("reasons") or [entry.get("company_name") or "Lowest liquid ask"])[:2],
+                    "_rank": conv_rank,
+                })
+            ranked.sort(key=lambda r: r["_rank"], reverse=True)
+            top_picks = [{k: v for k, v in r.items() if k != "_rank"} for r in ranked[:5]]
+
+            # Greedy diversified basket across top picks that fits strictly within remaining budget
+            rem = budget
+            basket: list[dict[str, Any]] = []
+            for r in top_picks:
+                if len(basket) >= 3 or rem <= 0:
+                    break
+                slice_cap = rem if len(basket) == 2 or rem < float(calculate_trade_charges(cur_code, "BUY", 1.0, r["exec_price"])["net_settlement"]) * 2 else round(rem * 0.55, 2)
+                bq, bcost = self._max_affordable_shares(cur_code, r["exec_price"], slice_cap)
+                if bq <= 0:
+                    bq, bcost = self._max_affordable_shares(cur_code, r["exec_price"], rem)
+                if bq > 0 and bcost <= rem + 1e-9:
+                    rem = round(max(0.0, rem - bcost), 2)
+                    basket.append({
+                        "symbol": r["symbol"],
+                        "currency": cur_code,
+                        "shares": bq,
+                        "exec_price": r["exec_price"],
+                        "net_cost": bcost,
+                        "score": r["score"],
+                        "win_prob_pct": r["win_prob_pct"],
+                    })
+            return top_picks, cheapest_gap, basket, round(rem, 2)
+
+        usd_picks, usd_gap, usd_basket, usd_rem = _picks_for_currency("USD", tot_dep_usd)
+        zwg_picks, zwg_gap, zwg_basket, zwg_rem = _picks_for_currency("ZWG", tot_dep_zwg) if include_zse else ([], None, [], tot_dep_zwg)
+
+        return {
+            "accounts": accounts_out,
+            "total_deployable_usd": tot_dep_usd,
+            "total_deployable_zwg": tot_dep_zwg,
+            "usd_picks": usd_picks,
+            "zwg_picks": zwg_picks,
+            "usd_basket": usd_basket,
+            "zwg_basket": zwg_basket,
+            "usd_leftover": usd_rem,
+            "zwg_leftover": zwg_rem,
+            "usd_gap_for_one": usd_gap,
+            "zwg_gap_for_one": zwg_gap,
+            "grok_active": bool((brain.get("grok") or {}).get("enabled")),
+        }
 
     def add_alert(self, symbol: str, direction: str, target: float) -> None:
         if direction not in ("above", "below"):
@@ -2997,6 +3589,15 @@ class VFEXStore:
         ep = brain.setdefault("exit_policy", ep_def)
         for ek, ev in ep_def.items():
             ep.setdefault(ek, ev)
+        gk_def = _default_grok_state()
+        gk = brain.setdefault("grok", gk_def)
+        for gk_k, gk_v in gk_def.items():
+            if gk_k == "metrics":
+                gm = gk.setdefault("metrics", dict(gk_v))
+                for mk, mv in gk_v.items():
+                    gm.setdefault(mk, mv)
+            else:
+                gk.setdefault(gk_k, gk_v)
         return brain
 
     @staticmethod
@@ -4197,8 +4798,8 @@ class VFEXStore:
         self.save()
         return self.paper_agent_summary()
 
-    def train_paper_agent_brain(self, days: int = 30, zwg_rate: float = 26.5) -> dict[str, Any]:
-        """Warm-train Mahoraga brain weights, playbooks & immunities on 30D history without altering live cash/holdings."""
+    def train_paper_agent_brain(self, days: int = 180, zwg_rate: float = 26.5) -> dict[str, Any]:
+        """Warm-train Mahoraga brain weights, playbooks, immunities & Grokking residual on history without altering live cash/holdings."""
         import copy
 
         live_agent = copy.deepcopy(self.get_paper_agent_state(zwg_rate=zwg_rate))
@@ -4272,9 +4873,17 @@ class VFEXStore:
                     followup_delta_pct=None,
                 )
             sb = live_agent["brain"]
+            episodes = _build_history_episodes(live_agent, self.state.get("history", {}), prices_live)
+            grok_res = _train_grokking_model(sb, episodes, today_str=today_str)
+            gm = grok_res.get("metrics") or {}
             today = today_str
             imms = [v["label"] for v in (sb.get("immunities") or {}).values() if v.get("active")]
             ep_tier = int((sb.get("exit_policy") or {}).get("caution_exit_strictness") or 0)
+            grok_note = (
+                f"Grokking: {grok_res.get('status')} (Val {gm.get('val_acc_pct', 0):.1f}% vs Lin {gm.get('linear_val_acc_pct', 0):.1f}%, Ep {gm.get('best_epoch', 0)}/{gm.get('epochs_run', 0)})"
+                if int(gm.get("episodes_total") or 0) >= GROK_MIN_EPISODES
+                else f"Grokking: {grok_res.get('status')} ({gm.get('episodes_total', 0)}/{GROK_MIN_EPISODES} episodes)"
+            )
             live_agent.setdefault("lessons", []).append({
                 "date": today,
                 "type": "TRAIN",
@@ -4282,7 +4891,7 @@ class VFEXStore:
                 "playbook": "Mahoraga",
                 "net_pnl_usd": 0.0,
                 "net_pnl_pct": 0.0,
-                "summary": f"Trained Mahoraga on {int(days)}d + live trades ({sb.get('adaptations_spun', 0)} spins)",
+                "summary": f"Trained Mahoraga on {int(days)}d + live trades ({sb.get('adaptations_spun', 0)} spins) • {grok_note}",
                 "adjustment": f"Caution Shield Tier {ep_tier}" + (f" • Shields: {', '.join(imms)}" if imms else ""),
             })
             if len(live_agent["lessons"]) > 40:
@@ -4452,6 +5061,12 @@ class VFEXStore:
                 "immunities": imm_list,
                 "exit_policy": brain.get("exit_policy") or _default_exit_policy(),
                 "logistic_weights": brain.get("logistic_weights") or {},
+                "grok": {
+                    "enabled": bool((brain.get("grok") or {}).get("enabled")),
+                    "status": str((brain.get("grok") or {}).get("status") or "Accumulating History"),
+                    "residual_alpha": float((brain.get("grok") or {}).get("residual_alpha") or 0.45),
+                    "metrics": dict((brain.get("grok") or {}).get("metrics") or _default_grok_state()["metrics"]),
+                },
             },
             "radar": radar_top,
             "shielded": shielded_top,
@@ -4529,6 +5144,8 @@ class VFEXStore:
             "holdings_count": len(synced.get("holdings", [])) or int(legacy_ct.get("holdings_count") or 0),
             "cash_usd": round(float(synced.get("cash_usd") or 0.0), 2),
             "cash_zwg": round(float(synced.get("cash_zwg") or 0.0), 2),
+            "held_usd": round(float(synced.get("held_usd") or 0.0), 2),
+            "held_zwg": round(float(synced.get("held_zwg") or 0.0), 2),
         }
 
     def accounts_status(self) -> dict[str, Any]:
@@ -4644,21 +5261,57 @@ class VFEXStore:
 
         cash_usd = 0.0
         cash_zwg = 0.0
-        for wep in ("/voms/wallet", "/voms/wallets", "/wallet", "/wallets"):
+        held_usd = 0.0
+        held_zwg = 0.0
+        for wep in ("/wallet/balance", "/voms/wallet/balance", "/wallets/balance", "/voms/wallet", "/voms/wallets", "/wallet", "/wallets"):
             try:
                 wpayload = self._voms_request(f"{base}{wep}", method="GET", token=token)
                 wdata = wpayload.get("data", wpayload) if isinstance(wpayload, dict) else wpayload
-                wrows = [wdata] if isinstance(wdata, dict) and any(k in wdata for k in ("balance", "availableBalance", "cashBalance")) else self._extract_voms_rows(wpayload)
+                wrows = [wdata] if isinstance(wdata, dict) and any(k in wdata for k in ("balance", "availableBalance", "cashBalance", "totalValuation")) else self._extract_voms_rows(wpayload)
                 for w in wrows:
                     bal = _safe_float(w.get("availableBalance") or w.get("cashBalance") or w.get("balance") or w.get("amount"))
                     if bal is None:
                         continue
+                    held = _safe_float(w.get("heldFundsBalance")) or 0.0
                     wcur = str(w.get("currency") or w.get("currencyCode") or cur_default).upper()
                     if wcur in ("ZWG", "ZWL", "ZIG"):
                         cash_zwg += bal
+                        held_zwg += held
                     else:
                         cash_usd += bal
+                        held_usd += held
                 if wrows:
+                    break
+            except ValueError:
+                continue
+
+        voms_txns: list[dict[str, Any]] = []
+        for tx_ep in ("/transactions", "/voms/transactions"):
+            try:
+                txpay = self._voms_request(f"{base}{tx_ep}", method="GET", token=token)
+                tdata = txpay.get("data", txpay) if isinstance(txpay, dict) else txpay
+                txrows = tdata.get("transactions") if isinstance(tdata, dict) and isinstance(tdata.get("transactions"), list) else self._extract_voms_rows(txpay)
+                if txrows:
+                    for t in txrows[:25]:
+                        if not isinstance(t, dict):
+                            continue
+                        slug = str(t.get("transactionTypeSlug") or t.get("type") or "TRANSACTION").replace("_", " ").upper()
+                        st_txt = str(t.get("status") or "").upper()
+                        amt = float(_safe_float(t.get("amount")) or 0.0)
+                        gw = str(t.get("paymentGateway") or "").strip()
+                        ref = str(t.get("refNumber") or t.get("transactionId") or "")
+                        voms_txns.append({
+                            "id": ref or str(len(voms_txns) + 1),
+                            "date": str(t.get("createdAt") or t.get("date") or "")[:10],
+                            "type": slug,
+                            "symbol": "",
+                            "shares": 0.0,
+                            "price": 0.0,
+                            "amount": round(amt, 2),
+                            "currency": str(t.get("currency") or cur_default).upper(),
+                            "description": f"{title}: {slug}" + (f" via {gw}" if gw else "") + (f" [{st_txt}]" if st_txt else ""),
+                            "provider": title,
+                        })
                     break
             except ValueError:
                 continue
@@ -4668,6 +5321,9 @@ class VFEXStore:
             "holdings": holdings,
             "cash_usd": round(cash_usd, 2),
             "cash_zwg": round(cash_zwg, 2),
+            "held_usd": round(held_usd, 2),
+            "held_zwg": round(held_zwg, 2),
+            "transactions": voms_txns,
             "last_sync": now_iso,
         }
         self.save()
@@ -4678,6 +5334,8 @@ class VFEXStore:
             "holdings_synced": len(holdings),
             "cash_usd": round(cash_usd, 2),
             "cash_zwg": round(cash_zwg, 2),
+            "held_usd": round(held_usd, 2),
+            "held_zwg": round(held_zwg, 2),
             "message": f"Synced {title}: {len(holdings)} holding(s){cash_part}.",
         }
 
@@ -4808,7 +5466,11 @@ class VFEXStore:
                     return val
             return None
         if isinstance(payload, dict):
-            for k in ("availableBalance", "cashBalance", "balance", "currentBalance", "usdBalance", "amount", "Amount", "CashBalance"):
+            for k in (
+                "actualCashBal", "ActualCashBal", "cashBal", "CashBal",
+                "availableBalance", "cashBalance", "balance", "currentBalance",
+                "forexBalance", "usdBalance", "amount", "Amount", "CashBalance",
+            ):
                 if payload.get(k) is not None:
                     val = _safe_float(payload.get(k))
                     if val is not None:
@@ -4917,14 +5579,21 @@ class VFEXStore:
                 if z_val is not None:
                     cash_zwg = round(max(0.0, z_val), 2)
             except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError, urllib.error.HTTPError):
-                pass
+                try:
+                    mob_bal_raw = _req_json(f"/api/mobile-proxy/getCashBalance?{urllib.parse.urlencode({'cdsNumber': cds})}")
+                    z_val = self._extract_ctrade_cash(mob_bal_raw)
+                    if z_val is not None:
+                        cash_zwg = round(max(0.0, z_val), 2)
+                except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError, urllib.error.HTTPError):
+                    pass
 
-            for ord_ep in (
-                f"/api/mobile-proxy/orders?{urllib.parse.urlencode({'cdsNumber': cds})}",
-                f"/api/trading-proxy/orders?{urllib.parse.urlencode({'cdsNumber': cds})}",
+            for ord_method, ord_ep, ord_body in (
+                ("POST", "/api/trading-proxy/account/orders", {"cdsNumber": cds}),
+                ("GET", f"/api/mobile-proxy/orders?{urllib.parse.urlencode({'cdsNumber': cds})}", None),
+                ("GET", f"/api/trading-proxy/orders?{urllib.parse.urlencode({'cdsNumber': cds})}", None),
             ):
                 try:
-                    opay = _req_json(ord_ep)
+                    opay = _req_json(ord_ep, method=ord_method, body=ord_body)
                     orows = self._extract_voms_rows(opay) if isinstance(opay, dict) else (opay if isinstance(opay, list) else [])
                     if orows:
                         for o in orows[:25]:
@@ -4950,21 +5619,21 @@ class VFEXStore:
                     continue
 
             seen_tx_keys: set[str] = set()
-            for tx_ep, def_cur in (
-                (f"/api/trading-proxy/transactions?{urllib.parse.urlencode({'cdsNumber': cds})}", "USD"),
-                (f"/api/trading-proxy/cash/usdTransactions?{urllib.parse.urlencode({'cdsNumber': cds})}", "USD"),
-                (f"/api/trading-proxy/cash/transactions?{urllib.parse.urlencode({'cdsNumber': cds})}", "ZWG"),
+            for tx_method, tx_ep, tx_body, def_cur in (
+                ("POST", "/api/trading-proxy/cash/usdTransactions", {"cdsNumber": cds}, "USD"),
+                ("POST", "/api/trading-proxy/cash/transactions", {"cdsNumber": cds}, "ZWG"),
+                ("GET", f"/api/trading-proxy/transactions?{urllib.parse.urlencode({'cdsNumber': cds})}", None, "USD"),
             ):
                 try:
-                    tpay = _req_json(tx_ep)
+                    tpay = _req_json(tx_ep, method=tx_method, body=tx_body)
                     trows = self._extract_voms_rows(tpay) if isinstance(tpay, dict) else (tpay if isinstance(tpay, list) else [])
                     for tx in trows[:40]:
                         if not isinstance(tx, dict):
                             continue
                         raw_s = str(tx.get("symbol") or tx.get("counter") or tx.get("Ticker") or tx.get("security") or "").strip().upper()
                         sym = raw_s[:-3] if raw_s.endswith(".VX") else raw_s
-                        dt_s = str(tx.get("date") or tx.get("transactionDate") or tx.get("createdAt") or tx.get("Date") or "")[:10]
-                        tx_type = str(tx.get("type") or tx.get("transactionType") or tx.get("side") or tx.get("action") or "TRANSACTION").upper()
+                        dt_s = str(tx.get("date") or tx.get("day") or tx.get("transactionDate") or tx.get("createdAt") or tx.get("Date") or "")[:10]
+                        tx_type = str(tx.get("transType") or tx.get("type") or tx.get("transactionType") or tx.get("side") or tx.get("action") or "TRANSACTION").upper()
                         sh = float(_safe_float(tx.get("shares") or tx.get("quantity") or tx.get("units") or tx.get("volume")) or 0.0)
                         px = float(_safe_float(tx.get("price") or tx.get("unitPrice")) or 0.0)
                         amt = float(_safe_float(tx.get("amount") or tx.get("netAmount") or tx.get("total") or tx.get("value")) or (sh * px))
@@ -4986,6 +5655,7 @@ class VFEXStore:
                             "amount": round(amt, 2),
                             "currency": cur,
                             "description": desc,
+                            "provider": "C-TRADE",
                         })
                 except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError, urllib.error.HTTPError):
                     continue
@@ -6163,9 +6833,19 @@ def format_panel_json(
         if len(overview_news) >= 3:
             break
 
-    ct_acct = store.state.get("synced_accounts", {}).get("ctrade") or {}
+    synced_map = store.state.get("synced_accounts", {})
+    ct_acct = synced_map.get("ctrade") or {}
     portal_orders = list(ct_acct.get("orders") or [])[:25]
-    raw_ptx = list(ct_acct.get("transactions") or [])[:40]
+    raw_ptx: list[dict[str, Any]] = []
+    for prov_k in ("ctrade", "vfex_direct", "zse_direct"):
+        for tx_row in ((synced_map.get(prov_k) or {}).get("transactions") or [])[:25]:
+            raw_ptx.append(tx_row)
+    raw_ptx.sort(key=lambda r: str(r.get("date") or ""), reverse=True)
+    raw_ptx = raw_ptx[:40]
+    idle_cash_plan = store.idle_cash_deployment(
+        include_zse=include_zse,
+        news_items=news_items if enable_news else [],
+    )
     existing_trade_keys = {
         (str(t.get("date") or ""), str(t.get("symbol") or "").upper(), round(float(t.get("shares") or 0.0), 3), str(t.get("action") or "").upper())
         for t in store.state.get("trades", [])
@@ -6254,6 +6934,7 @@ def format_panel_json(
         "accounts": store.accounts_status(),
         "portal_orders": portal_orders,
         "portal_transactions": portal_transactions,
+        "idle_cash_plan": idle_cash_plan,
         "connected_count": sum(1 for v in store.accounts_status().values() if v.get("connected")),
         "wallet_cash_usd": summary["wallet_cash_usd"],
         "wallet_cash_zwg": summary["wallet_cash_zwg"],
@@ -6324,7 +7005,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_agent = sub.add_parser("agent", help="Manage and run the local $100 self-learning paper-trading agent")
     p_agent.add_argument("action", choices=["status", "step", "replay", "train", "pause", "resume", "reset", "fees"])
-    p_agent.add_argument("--days", type=int, default=30, help="Historical days for replay")
+    p_agent.add_argument("--days", type=int, default=180, help="Historical days for replay/training")
     p_agent.add_argument("--capital", type=float, default=100.0, help="Starting USD capital for reset/replay")
     p_agent.add_argument("--zwg-rate", type=float, default=26.5, help="ZWG/USD exchange rate")
     p_agent.add_argument("--json", action="store_true", help="Output structured JSON")
@@ -6563,15 +7244,17 @@ def _dispatch(args: argparse.Namespace, store: VFEXStore) -> int:
                     f"({summary['net_pnl_pct']:+.2f}%) | {len(summary['trades'])} fills | Fees ${summary['total_fees_usd']:.2f} | {len(summary['lessons'])} lessons"
                 )
         elif act == "train":
-            summary = store.train_paper_agent_brain(days=int(getattr(args, "days", 30) or 30), zwg_rate=rate)
+            summary = store.train_paper_agent_brain(days=int(getattr(args, "days", 180) or 180), zwg_rate=rate)
             if args.json:
                 print(json.dumps(summary))
             else:
                 br = summary.get("brain", {})
+                gk = br.get("grok") or {}
                 active_imm = sum(1 for im in br.get("immunities", []) if im.get("active"))
                 print(
                     f"Trained Mahoraga brain: {br.get('adaptations_spun', 0)} wheel adaptation(s), "
-                    f"{active_imm} active shield(s), {br.get('shadows_resolved', 0)}/{br.get('shadows_total', 0)} shadows"
+                    f"{active_imm} active shield(s), {br.get('shadows_resolved', 0)}/{br.get('shadows_total', 0)} shadows | "
+                    f"Grokking: {gk.get('status', 'Accumulating History')}"
                 )
         else:
             summary = store.paper_agent_summary(rate)
