@@ -1465,6 +1465,108 @@ For and on behalf of MORGAN & CO
         )
         self.assertIsNone(buy_blocked)
 
+    def test_extended_zse_sheet_finsec_indices_foreign_flows_and_ctrade_wallet_orders(self) -> None:
+        from vfex import (
+            CTRADE_INDICES_URL,
+            CTRADE_UNIT_TRUSTS_URL,
+            VFEX_DTR_URL,
+            ZSE_DTR_URL,
+            _ingest_finsec_rows,
+            _ingest_zse_direct_payload,
+            fetch_exchange_intelligence,
+        )
+
+        # 1. ZSE Direct price-sheet normalizes 100x cents -> ZiG + records ETF & circuit breakers
+        zse_payload = {
+            "data": {
+                "EQUITY": [{"symbol": "AFDS.ZW", "symbolName": "AFDIS", "isin": "ZW0001", "openingPrice": 1900.0, "closingPrice": 1928.2609, "upperPriceRange": 2217.5, "lowerPriceRange": 1639.0218, "percentagePriceChange": 1.49}],
+                "ETF": [{"symbol": "CSAG.ZW", "symbolName": "CASS SADDLE", "isin": "ZW0002", "openingPrice": 10.0, "closingPrice": 11.0, "upperPriceRange": 12.65, "lowerPriceRange": 9.35, "securitySubType": "ETF"}],
+            }
+        }
+        cnt = _ingest_zse_direct_payload(self.store, zse_payload, tracked_zse={"AFDS.ZW"})
+        self.assertEqual(cnt, 2)
+        self.assertAlmostEqual(self.store.get_price("AFDS.ZW"), 19.2826, places=4)
+        self.assertAlmostEqual(self.store.get_price_entry("CSAG.ZW")["upper_limit"], 0.1265, places=4)
+        self.assertEqual(self.store.get_price_entry("CSAG.ZW")["security_type"], "ETF")
+
+        # 2. C-TRADE FINSEC ingestion (OMZIL)
+        fin_cnt = _ingest_finsec_rows(
+            self.store,
+            [{"market_company": "OMZIL", "market_lp": "40.0000", "market_bp": "35.0000", "market_ap": "40.0000", "market_bbv": "1000", "market_va": "78", "FullCompanyName": "Old Mutual Zimbabwe Limited", "Category": "EQUITY"}],
+            "2026-11-17",
+            set(),
+        )
+        self.assertEqual(fin_cnt, 1)
+        self.assertAlmostEqual(self.store.get_price("OMZIL"), 40.0, places=2)
+
+        # 3. Full DTR foreign purchases/sales + C-TRADE indices & unit trusts
+        self.store.set_price("FCA", 0.16, currency="USD", best_bid=0.159, best_ask=0.161, bid_volume=1000, ask_volume=200)
+        self.store.set_price("CMCL", 35.0, currency="USD", change_pct=-2.0)
+        fake_dtr = json.dumps({
+            "data": [{
+                "statsDate": [2026, 11, 17],
+                "content": json.dumps({
+                    "volumeAndTurnover": {"totalMarketTurnover": 848000.0, "totalMarketVolumeShares": 1500000, "totalNumberOfTrades": 168, "foreignPurchases": {"value": 15000.0}, "foreignSales": {"value": 29050.0}},
+                    "indices": {"index": "VFEX ALLSHARE", "closingPrice": 267.48, "changePercentage": -0.17},
+                    "totalMarketCapitalisation": 9043764869.61,
+                    "moversAndShakers": {"movers": [{"counter": "FIRST CAPITAL", "percentageChange": 5.0}], "shakers": []},
+                    "topFiveCounters": {
+                        "volumesTraded": [{"counter": "FIRST CAPITAL BANK", "volumes": 500000, "valueTraded": 80000.0}],
+                        "foreignPurchases": [{"counter": "FCA.VX", "value": 15000.0, "volume": 90000}],
+                        "foreignSales": [{"counter": "CMCL.VX", "value": 29050.0, "volume": 830}],
+                    },
+                    "topTenMarketCap": [],
+                }),
+            }]
+        })
+        fake_indices = json.dumps([{"Indexcode": "M & C All Share", "IndexSymbol": "MCAS", "IndexLevel": "5434.60", "IndexChange": "12.5", "High": "5434.6", "Low": "5400", "one_week": "3254.79", "one_month": "1940.04", "one_year": "1019.71", "fifty_two_high": "5500.0"}])
+        fake_uts = json.dumps([{"company": "DATVEST", "fullName": "Datvest Income Fund", "currency": "USD", "initialPrice": "1.05", "status": "ACTIVE", "type": "UNIT TRUST"}])
+
+        def fake_fetch(url: str) -> str:
+            if url == VFEX_DTR_URL:
+                return fake_dtr
+            if url == ZSE_DTR_URL:
+                return json.dumps({"data": []})
+            if url == CTRADE_INDICES_URL:
+                return fake_indices
+            if url == CTRADE_UNIT_TRUSTS_URL:
+                return fake_uts
+            return "{}"
+
+        intel = fetch_exchange_intelligence(self.store, force=True, fetcher=fake_fetch)
+        self.assertGreater(intel["vfex"]["total_market_cap"], 9e9)
+        self.assertEqual(intel["foreign_counters"]["FCA"]["net_val"], 15000.0)
+        self.assertEqual(intel["foreign_counters"]["CMCL"]["net_val"], -29050.0)
+        self.assertEqual(intel["indices"][0]["name"], "M & C All Share")
+        self.assertEqual(intel["unit_trusts"][0]["symbol"], "DATVEST")
+
+        sigs = self.store.trade_signals(tracked_only=False)
+        fca_sig = next((s for s in sigs if s["symbol"] == "FCA"), None)
+        self.assertIsNotNone(fca_sig)
+        self.assertTrue(any("Foreign inflow" in r for r in fca_sig["reasons"]))
+
+        # 4. Synced C-TRADE cash, working orders & deduplicated transactions in format_panel_json
+        self.store.buy("FCA", 50, 0.16, date="2026-11-16")
+        self.store.state.setdefault("synced_accounts", {})["ctrade"] = {
+            "holdings": [{"symbol": "FCA", "shares": 50.0, "avg_cost": 0.16, "currency": "USD"}],
+            "cash_usd": 42.50,
+            "cash_zwg": 310.00,
+            "orders": [{"id": "ORD1", "symbol": "SIM", "side": "BUY", "shares": 25.0, "price": 0.34, "status": "Working", "date": "2026-11-17", "currency": "USD"}],
+            "transactions": [
+                {"id": "T1", "date": "2026-11-16", "type": "BUY", "symbol": "FCA", "shares": 50.0, "price": 0.16, "amount": 8.0, "currency": "USD", "description": "Buy FCA"},
+                {"id": "T2", "date": "2026-11-17", "type": "BUY", "symbol": "SIM", "shares": 20.0, "price": 0.34, "amount": 6.8, "currency": "USD", "description": "Buy SIM"},
+            ],
+            "last_sync": "2026-11-17T10:00:00+00:00",
+        }
+        self.store.state["last_fetch_at"] = datetime.now(timezone.utc).isoformat()
+        self.store.state["news_cache"] = {"fetched_at": datetime.now(timezone.utc).isoformat(), "items": []}
+        panel = format_panel_json(self.store)
+        self.assertEqual(panel["accounts"]["ctrade"]["cash_usd"], 42.50)
+        self.assertEqual(panel["accounts"]["ctrade"]["cash_zwg"], 310.00)
+        self.assertEqual(len(panel["portal_orders"]), 1)
+        self.assertTrue(panel["portal_transactions"][0]["already_imported"])
+        self.assertFalse(panel["portal_transactions"][1]["already_imported"])
+
 
 if __name__ == "__main__":
     unittest.main()

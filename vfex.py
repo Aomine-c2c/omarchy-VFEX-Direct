@@ -30,9 +30,15 @@ DEFAULT_CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".conf
 VFEX_DIRECT_API_BASE = "https://d3u8q0mxu6epjj.cloudfront.net/api/v1"
 ZSE_DIRECT_API_BASE = "https://d17zh5y0djjrt1.cloudfront.net/api/v1"
 VFEX_DIRECT_URL = f"{VFEX_DIRECT_API_BASE}/voms/price-sheets/active"
+ZSE_DIRECT_URL = f"{ZSE_DIRECT_API_BASE}/voms/price-sheets/active"
 CTRADE_BASE_URL = "https://ctradenew.ctrade.co.zw"
 CTRADE_VFEX_URL = f"{CTRADE_BASE_URL}/api/web-proxy/online.ctrade_php/marketwatchvx.php"
 CTRADE_ZSE_URL = f"{CTRADE_BASE_URL}/api/mobile-proxy/marketwatchzsenew"
+CTRADE_ETF_URL = f"{CTRADE_BASE_URL}/api/mobile-proxy/etfMarketWatch"
+CTRADE_INDICES_URL = f"{CTRADE_BASE_URL}/api/mobile-proxy/marketwatchindices"
+CTRADE_FINSEC_URL = f"{CTRADE_BASE_URL}/api/web-proxy/online.ctrade_php/marketwatchbidoffer.php"
+CTRADE_UNIT_TRUSTS_URL = f"{CTRADE_BASE_URL}/api/trading-proxy/data/unit_trusts-v2"
+CTRADE_NOTICES_URL = f"{CTRADE_BASE_URL}/api/notices"
 
 EXCHANGE_DOCS_API_BASE = "https://ds88jcmqc11je.cloudfront.net/api"
 VFEX_ANNOUNCEMENTS_URL = f"{EXCHANGE_DOCS_API_BASE}/docs?exchange=VFEX&category=announcements"
@@ -1306,6 +1312,8 @@ class VFEXStore:
         save: bool = True,
         upper_limit: float | None = None,
         lower_limit: float | None = None,
+        isin: str | None = None,
+        security_type: str | None = None,
     ) -> None:
         sym = symbol.upper()
         now = datetime.now(timezone.utc)
@@ -1337,6 +1345,8 @@ class VFEXStore:
             ask_volume=ask_volume if ask_volume is not None else prev_entry.get("ask_volume"),
             currency=cur_code,
             company_name=company_name or prev_entry.get("company_name"),
+            isin=isin or prev_entry.get("isin"),
+            security_type=security_type or prev_entry.get("security_type"),
         )
         self.state["prices"][sym] = price_entry
 
@@ -1376,11 +1386,17 @@ class VFEXStore:
         ask_volume: int | None = None,
         currency: str | None = None,
         company_name: str | None = None,
+        isin: str | None = None,
+        security_type: str | None = None,
     ) -> None:
         if currency:
             entry["currency"] = currency
         if company_name:
             entry["company_name"] = str(company_name).strip()
+        if isin:
+            entry["isin"] = str(isin).strip().upper()
+        if security_type:
+            entry["security_type"] = str(security_type).strip().upper()
         if best_bid is not None and float(best_bid) > 0:
             entry["best_bid"] = round(float(best_bid), 4)
         if best_ask is not None and float(best_ask) > 0:
@@ -1401,11 +1417,13 @@ class VFEXStore:
         ask_volume: int | None = None,
         currency: str | None = None,
         company_name: str | None = None,
+        isin: str | None = None,
+        security_type: str | None = None,
     ) -> None:
         """Attach bid/ask depth metadata to an existing price entry without altering its price."""
         entry = self.state["prices"].get(symbol.upper())
         if entry:
-            self._apply_depth_fields(entry, best_bid, best_ask, bid_volume, ask_volume, currency, company_name)
+            self._apply_depth_fields(entry, best_bid, best_ask, bid_volume, ask_volume, currency, company_name, isin, security_type)
 
     def get_price_entry(self, symbol: str) -> dict[str, Any]:
         return self.state.get("prices", {}).get(symbol.upper(), {})
@@ -2377,6 +2395,7 @@ class VFEXStore:
         intel = self.get_cached_intel()
         dtr_counters = intel.get("counters", {}) if isinstance(intel, dict) else {}
         blue_chips = intel.get("blue_chips", {}) if isinstance(intel, dict) else {}
+        foreign_counters = intel.get("foreign_counters", {}) if isinstance(intel, dict) else {}
         below_targets = {
             a["symbol"]: float(a["target"])
             for a in self.state.get("alerts", [])
@@ -2409,6 +2428,7 @@ class VFEXStore:
             pinned_tag, is_pinned = self.get_strategy_tag(sym, goal)
             dtr_info = dtr_counters.get(sym)
             bc_info = blue_chips.get(sym)
+            fc_info = foreign_counters.get(sym)
             band_pos = self._band_position_pct(cur, entry)
             sched = ZSE_FEE_SCHEDULE if cur_code == "ZWG" else VFEX_FEE_SCHEDULE
 
@@ -2462,6 +2482,15 @@ class VFEXStore:
             if band_pos is not None and band_pos <= 20.0 and (swing_score > 0 or core_score > 0):
                 swing_score += 8
                 swing_reasons.append(f"Near floor {band_pos:.0f}%")
+            if fc_info:
+                f_net = float(fc_info.get("net_val") or 0.0)
+                f_thr = 50000.0 if cur_code == "ZWG" else 1000.0
+                if f_net >= f_thr and (swing_score > 0 or core_score > 0):
+                    swing_score += 10
+                    swing_reasons.append(f"Foreign inflow {format_money(f_net, cur_code, 0)}")
+                elif f_net <= -f_thr and swing_score > 0:
+                    swing_score = max(0, swing_score - 6)
+                    swing_reasons.append(f"Foreign outflow {format_money(abs(f_net), cur_code, 0)}")
 
             # Resolve horizon & score per Trading Goal
             buy_score = 0
@@ -2555,6 +2584,7 @@ class VFEXStore:
                     "dtr_turnover": float(dtr_info["value_traded"]) if dtr_info else None,
                     "dtr_volume": float(dtr_info["volumes"]) if dtr_info else None,
                     "blue_chip_rank": int(bc_info["rank"]) if bc_info else None,
+                    "foreign_net": float(fc_info["net_val"]) if fc_info else None,
                     "band_pos_pct": band_pos,
                     "est_round_trip_fee_pct": sched["round_trip_pct"],
                     "reasons": buy_reasons,
@@ -2741,6 +2771,8 @@ class VFEXStore:
 
         rows: list[dict[str, Any]] = []
         history_map = self.state.get("history", {})
+        intel = self.get_cached_intel()
+        foreign_counters = intel.get("foreign_counters", {}) if isinstance(intel, dict) else {}
         for sym, entry in sorted(self.state.get("prices", {}).items()):
             cur = float(entry.get("price") or 0.0)
             if cur <= 0:
@@ -2757,10 +2789,17 @@ class VFEXStore:
                 "BUY",
             )
             sig = sig_by_sym.get(sym)
+            fc_info = foreign_counters.get(sym)
             rows.append({
                 "symbol": sym,
                 "company_name": entry.get("company_name") or KNOWN_VFEX_SYMBOLS.get(sym, ""),
                 "currency": cur_code,
+                "isin": entry.get("isin"),
+                "security_type": entry.get("security_type") or "EQUITY",
+                "upper_limit": entry.get("upper_limit"),
+                "lower_limit": entry.get("lower_limit"),
+                "band_position_pct": self._band_position_pct(cur, entry),
+                "foreign_net": float(fc_info["net_val"]) if fc_info else None,
                 "price": cur,
                 "change_pct": self.get_daily_change(sym),
                 "best_bid": entry.get("best_bid"),
@@ -3288,6 +3327,7 @@ class VFEXStore:
         intel = self.get_cached_intel()
         dtr_counters = intel.get("counters", {}) if isinstance(intel, dict) else {}
         blue_chips = intel.get("blue_chips", {}) if isinstance(intel, dict) else {}
+        foreign_counters = intel.get("foreign_counters", {}) if isinstance(intel, dict) else {}
         regime = _compute_market_regime(prices_map, intel)
         zwg_rate = max(1.0, float(agent.get("zwg_rate") or 26.5))
         cands: list[dict[str, Any]] = []
@@ -3348,16 +3388,25 @@ class VFEXStore:
 
             dtr_info = dtr_counters.get(sym)
             bc_info = blue_chips.get(sym)
+            fc_info = foreign_counters.get(sym)
             band_pos = self._band_position_pct(cur, entry)
             vol_pts = 15.0 * float(w.get("volume_mult", 1.0)) if (dtr_info and float(dtr_info.get("value_traded") or 0.0) > 0) else 0.0
             bc_pts = 8.0 if (bc_info and (dip_pts > 0 or rsi_pts > 0 or vol_pts > 0)) else 0.0
             band_adj = 8.0 if (band_pos is not None and band_pos <= 20.0) else (-12.0 if (band_pos is not None and band_pos >= 90.0) else 0.0)
+            f_adj = 0.0
+            if fc_info:
+                f_net = float(fc_info.get("net_val") or 0.0)
+                f_thr = 50000.0 if cur_code == "ZWG" else 1000.0
+                if f_net >= f_thr:
+                    f_adj = 8.0
+                elif f_net <= -f_thr:
+                    f_adj = -8.0
 
             spread_pen = 8.0 * float(w.get("wide_spread_penalty", 1.0)) if spread_pct > 10.0 else 0.0
             # ZSE carries ~4.38% round-trip cost incl CGT, require extra edge via zse_hurdle_mult
             zse_pen = 6.0 * float(w.get("zse_hurdle_mult", 1.0)) if cur_code == "ZWG" else 0.0
 
-            raw_score = dip_pts + rsi_pts + book_pts + news_pts + vol_pts + bc_pts + band_adj - spread_pen - zse_pen
+            raw_score = dip_pts + rsi_pts + book_pts + news_pts + vol_pts + bc_pts + band_adj + f_adj - spread_pen - zse_pen
             score = int(round(max(0.0, min(100.0, raw_score))))
             if score < int(w.get("min_entry_score", 22)):
                 continue
@@ -3371,6 +3420,10 @@ class VFEXStore:
                 reasons.append(f"DTR Vol {v_lbl}")
             if bc_pts > 0 and bc_info:
                 reasons.append(f"Top{bc_info['rank']} Cap")
+            if f_adj > 0 and fc_info:
+                reasons.append(f"Foreign Inflow {format_money(float(fc_info.get('net_val') or 0.0), cur_code, 0)}")
+            elif f_adj < 0 and fc_info:
+                reasons.append(f"Foreign Outflow {format_money(abs(float(fc_info.get('net_val') or 0.0)), cur_code, 0)}")
             if dip_pts > 0:
                 reasons.append(f"Dip -{drop30:.1f}%" if drop30 >= 2.0 else f"{float(chg_pct or 0):.1f}% today")
             if rsi_pts > 0 and rsi_val is not None:
@@ -4741,6 +4794,32 @@ class VFEXStore:
             raise ValueError("No connected accounts ready to sync.")
         return {"ok": True, "message": " | ".join(synced_msgs)}
 
+    @staticmethod
+    def _extract_ctrade_cash(payload: Any) -> float | None:
+        """Extract a numeric cash balance from C-TRADE USD forex or ZWG cash payloads."""
+        if isinstance(payload, (int, float)):
+            return float(payload)
+        if isinstance(payload, str):
+            return _safe_float(payload)
+        if isinstance(payload, list):
+            for item in payload:
+                val = VFEXStore._extract_ctrade_cash(item)
+                if val is not None:
+                    return val
+            return None
+        if isinstance(payload, dict):
+            for k in ("availableBalance", "cashBalance", "balance", "currentBalance", "usdBalance", "amount", "Amount", "CashBalance"):
+                if payload.get(k) is not None:
+                    val = _safe_float(payload.get(k))
+                    if val is not None:
+                        return val
+            for k in ("data", "result", "cash"):
+                if payload.get(k) is not None:
+                    val = VFEXStore._extract_ctrade_cash(payload.get(k))
+                    if val is not None:
+                        return val
+        return None
+
     def ctrade_login_and_sync(
         self,
         email: str | None = None,
@@ -4748,7 +4827,7 @@ class VFEXStore:
         sync_portfolio: bool = True,
         base_url: str = CTRADE_BASE_URL,
     ) -> dict[str, Any]:
-        """Authenticate against C-TRADE portal and sync holdings (storing creds 0600 locally only on success)."""
+        """Authenticate against C-TRADE and sync multi-asset holdings, cash balances, orders & transactions."""
         saved = self._load_ctrade_creds()
         em = (email or saved.get("email") or "").strip()
         pw = password if password is not None else saved.get("password")
@@ -4757,15 +4836,20 @@ class VFEXStore:
 
         jar = http.cookiejar.CookieJar()
         opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-        login_req = urllib.request.Request(
-            f"{base_url}/api/auth/login",
-            data=json.dumps({"Email": em, "Password": pw}).encode("utf-8"),
-            headers={"Content-Type": "application/json", "Accept": "application/json", "User-Agent": "omarchy-VFEX-Direct/0.1"},
-            method="POST",
-        )
+
+        def _req_json(path_or_url: str, method: str = "GET", body: dict[str, Any] | None = None) -> Any:
+            full_u = path_or_url if path_or_url.startswith("http") else f"{base_url}{path_or_url}"
+            hdrs = {"Accept": "application/json", "User-Agent": "omarchy-VFEX-Direct/0.1"}
+            raw_data = None
+            if body is not None:
+                hdrs["Content-Type"] = "application/json"
+                raw_data = json.dumps(body).encode("utf-8")
+            req = urllib.request.Request(full_u, data=raw_data, headers=hdrs, method=method)
+            with opener.open(req, timeout=15) as hresp:
+                return json.loads(hresp.read().decode("utf-8", "ignore"))
+
         try:
-            with opener.open(login_req, timeout=15) as resp:
-                auth_payload = json.loads(resp.read().decode("utf-8"))
+            auth_payload = _req_json("/api/auth/login", method="POST", body={"Email": em, "Password": pw})
         except urllib.error.HTTPError as exc:
             err_body = exc.read().decode("utf-8", "ignore")
             raise ValueError(f"C-TRADE login failed (HTTP {exc.code}): {err_body[:120]}") from exc
@@ -4781,19 +4865,23 @@ class VFEXStore:
         self._save_ctrade_creds({"email": em, "password": pw, "cds_number": cds})
 
         imported_holdings: list[dict[str, Any]] = []
+        seen_holdings: set[tuple[str, str]] = set()
+        cash_usd = 0.0
+        cash_zwg = 0.0
+        portal_orders: list[dict[str, Any]] = []
+        portal_txns: list[dict[str, Any]] = []
+
         if sync_portfolio and cds:
             for endpoint, default_cur, strip_vx in (
                 ("PortfolioByTypeVFEX", "USD", True),
                 ("PortfolioByType", "ZWG", False),
             ):
-                q = urllib.parse.urlencode({"cdsNumber": cds, "type": "equity"})
-                p_req = urllib.request.Request(
-                    f"{base_url}/api/mobile-proxy/{endpoint}?{q}",
-                    headers={"Accept": "application/json", "User-Agent": "omarchy-VFEX-Direct/0.1"},
-                )
-                try:
-                    with opener.open(p_req, timeout=15) as presp:
-                        pdata = json.loads(presp.read().decode("utf-8"))
+                for asset_type in ("equity", "reits", "etf"):
+                    q = urllib.parse.urlencode({"cdsNumber": cds, "type": asset_type})
+                    try:
+                        pdata = _req_json(f"/api/mobile-proxy/{endpoint}?{q}")
+                    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError, urllib.error.HTTPError):
+                        continue
                     rows = pdata if isinstance(pdata, list) else (pdata.get("data") if isinstance(pdata, dict) else [])
                     if isinstance(rows, list):
                         for r in rows:
@@ -4803,16 +4891,103 @@ class VFEXStore:
                             sym = raw_sym[:-3] if (strip_vx and raw_sym.endswith(".VX")) else raw_sym
                             qty = _safe_float(r.get("total_units") or r.get("shares") or r.get("Quantity") or r.get("balance"))
                             avg = _safe_float(r.get("average_price") or r.get("avg_price") or r.get("Current_price")) or self.get_price(sym) or 0.0
-                            if sym and qty and qty > 0:
+                            if sym and qty and qty > 0 and (sym, default_cur) not in seen_holdings:
+                                seen_holdings.add((sym, default_cur))
                                 imported_holdings.append({
                                     "symbol": sym,
                                     "shares": round(qty, 6),
                                     "avg_cost": round(avg, 4),
                                     "currency": default_cur,
+                                    "asset_type": asset_type.upper(),
                                 })
                                 if sym not in self.state["watchlist"]:
                                     self.state["watchlist"].append(sym)
-                except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError):
+
+            try:
+                usd_bal_raw = _req_json(f"/api/web-proxy/online.ctrade_php/getCashBalanceForex.php?{urllib.parse.urlencode({'cdsNumber': cds})}")
+                u_val = self._extract_ctrade_cash(usd_bal_raw)
+                if u_val is not None:
+                    cash_usd = round(max(0.0, u_val), 2)
+            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError, urllib.error.HTTPError):
+                pass
+
+            try:
+                zwg_bal_raw = _req_json("/api/trading-proxy/account/cash", method="POST", body={"cdsNumber": cds})
+                z_val = self._extract_ctrade_cash(zwg_bal_raw)
+                if z_val is not None:
+                    cash_zwg = round(max(0.0, z_val), 2)
+            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError, urllib.error.HTTPError):
+                pass
+
+            for ord_ep in (
+                f"/api/mobile-proxy/orders?{urllib.parse.urlencode({'cdsNumber': cds})}",
+                f"/api/trading-proxy/orders?{urllib.parse.urlencode({'cdsNumber': cds})}",
+            ):
+                try:
+                    opay = _req_json(ord_ep)
+                    orows = self._extract_voms_rows(opay) if isinstance(opay, dict) else (opay if isinstance(opay, list) else [])
+                    if orows:
+                        for o in orows[:25]:
+                            if not isinstance(o, dict):
+                                continue
+                            raw_s = str(o.get("symbol") or o.get("counter") or o.get("Ticker") or o.get("company") or "").strip().upper()
+                            sym = raw_s[:-3] if raw_s.endswith(".VX") else raw_s
+                            if not sym:
+                                continue
+                            cur = infer_currency(sym, {"currency": str(o.get("currency") or "").upper()})
+                            portal_orders.append({
+                                "id": str(o.get("id") or o.get("orderId") or o.get("order_id") or ""),
+                                "symbol": sym,
+                                "side": str(o.get("side") or o.get("orderType") or o.get("type") or "ORDER").upper(),
+                                "shares": float(_safe_float(o.get("quantity") or o.get("shares") or o.get("volume") or o.get("units")) or 0.0),
+                                "price": float(_safe_float(o.get("price") or o.get("limitPrice") or o.get("orderPrice")) or 0.0),
+                                "status": str(o.get("status") or o.get("orderStatus") or "ACTIVE"),
+                                "date": str(o.get("createdAt") or o.get("date") or o.get("orderDate") or "")[:10],
+                                "currency": cur,
+                            })
+                        break
+                except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError, urllib.error.HTTPError):
+                    continue
+
+            seen_tx_keys: set[str] = set()
+            for tx_ep, def_cur in (
+                (f"/api/trading-proxy/transactions?{urllib.parse.urlencode({'cdsNumber': cds})}", "USD"),
+                (f"/api/trading-proxy/cash/usdTransactions?{urllib.parse.urlencode({'cdsNumber': cds})}", "USD"),
+                (f"/api/trading-proxy/cash/transactions?{urllib.parse.urlencode({'cdsNumber': cds})}", "ZWG"),
+            ):
+                try:
+                    tpay = _req_json(tx_ep)
+                    trows = self._extract_voms_rows(tpay) if isinstance(tpay, dict) else (tpay if isinstance(tpay, list) else [])
+                    for tx in trows[:40]:
+                        if not isinstance(tx, dict):
+                            continue
+                        raw_s = str(tx.get("symbol") or tx.get("counter") or tx.get("Ticker") or tx.get("security") or "").strip().upper()
+                        sym = raw_s[:-3] if raw_s.endswith(".VX") else raw_s
+                        dt_s = str(tx.get("date") or tx.get("transactionDate") or tx.get("createdAt") or tx.get("Date") or "")[:10]
+                        tx_type = str(tx.get("type") or tx.get("transactionType") or tx.get("side") or tx.get("action") or "TRANSACTION").upper()
+                        sh = float(_safe_float(tx.get("shares") or tx.get("quantity") or tx.get("units") or tx.get("volume")) or 0.0)
+                        px = float(_safe_float(tx.get("price") or tx.get("unitPrice")) or 0.0)
+                        amt = float(_safe_float(tx.get("amount") or tx.get("netAmount") or tx.get("total") or tx.get("value")) or (sh * px))
+                        cur = str(tx.get("currency") or ("USD" if raw_s.endswith(".VX") else (infer_currency(sym) if sym else def_cur))).upper()
+                        if cur not in ("USD", "ZWG"):
+                            cur = def_cur
+                        desc = str(tx.get("description") or tx.get("narration") or tx.get("remarks") or tx_type).strip()
+                        key = f"{dt_s}|{tx_type}|{sym}|{sh:.4f}|{amt:.2f}|{cur}"
+                        if key in seen_tx_keys:
+                            continue
+                        seen_tx_keys.add(key)
+                        portal_txns.append({
+                            "id": str(tx.get("id") or tx.get("reference") or key),
+                            "date": dt_s,
+                            "type": tx_type,
+                            "symbol": sym,
+                            "shares": round(sh, 6),
+                            "price": round(px, 4),
+                            "amount": round(amt, 2),
+                            "currency": cur,
+                            "description": desc,
+                        })
+                except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError, urllib.error.HTTPError):
                     continue
 
         now_iso = datetime.now(timezone.utc).isoformat()
@@ -4821,20 +4996,38 @@ class VFEXStore:
             "cds_number": cds,
             "last_sync": now_iso,
             "holdings_count": len(imported_holdings),
+            "cash_usd": cash_usd,
+            "cash_zwg": cash_zwg,
+            "orders_count": len(portal_orders),
+            "transactions_count": len(portal_txns),
         }
         self.state.setdefault("synced_accounts", {})["ctrade"] = {
             "holdings": imported_holdings,
-            "cash_usd": 0.0,
-            "cash_zwg": 0.0,
+            "cash_usd": cash_usd,
+            "cash_zwg": cash_zwg,
+            "orders": portal_orders,
+            "transactions": portal_txns,
             "last_sync": now_iso,
         }
         self.save()
+        cash_msg = ""
+        if cash_usd > 0 or cash_zwg > 0:
+            parts = []
+            if cash_usd > 0:
+                parts.append(f"${cash_usd:.2f} USD")
+            if cash_zwg > 0:
+                parts.append(f"ZiG {cash_zwg:.2f}")
+            cash_msg = f", cash {' + '.join(parts)}"
         return {
             "ok": True,
             "cds_number": cds,
             "email_masked": self._mask_email(em),
             "holdings_synced": len(imported_holdings),
-            "message": f"Connected C-TRADE ({cds or self._mask_email(em)}); synced {len(imported_holdings)} holding(s).",
+            "cash_usd": cash_usd,
+            "cash_zwg": cash_zwg,
+            "orders_count": len(portal_orders),
+            "transactions_count": len(portal_txns),
+            "message": f"Connected C-TRADE ({cds or self._mask_email(em)}); synced {len(imported_holdings)} holding(s){cash_msg}.",
         }
 
     def import_csv(self, csv_path: Path) -> int:
@@ -4981,41 +5174,69 @@ def _fetch_json(target_url: str, timeout: int = 10) -> tuple[int, Any]:
         return resp.status, json.loads(resp.read().decode("utf-8"))
 
 
-def _ingest_vfex_direct_payload(store: VFEXStore, payload: Any) -> int:
+def _ingest_price_sheet_payload(
+    store: VFEXStore,
+    payload: Any,
+    currency: str = "USD",
+    scale_div: float = 1.0,
+    strip_vx: bool = True,
+    source: str = "vfex-direct",
+    tracked_zse: set[str] | None = None,
+) -> int:
     data = payload.get("data") if isinstance(payload, dict) else None
     if not isinstance(data, dict):
         return 0
     updated = 0
-    for group_items in data.values():
+    for grp_name, group_items in data.items():
         if not isinstance(group_items, list):
             continue
+        sec_type_default = str(grp_name or "EQUITY").strip().upper()
         for item in group_items:
+            if not isinstance(item, dict):
+                continue
             raw_sym = str(item.get("symbol") or "").strip().upper()
-            sym = raw_sym[:-3] if raw_sym.endswith(".VX") else raw_sym
+            sym = raw_sym[:-3] if (strip_vx and raw_sym.endswith(".VX")) else raw_sym
             raw_price = item.get("closingPrice")
             if raw_price is None:
                 raw_price = item.get("openingPrice")
-            if sym and raw_price is not None:
-                open_p = item.get("openingPrice")
-                chg_p = item.get("percentagePriceChange")
+            if sym and raw_price is not None and float(raw_price) > 0:
+                p_val = float(raw_price) / scale_div
+                open_p = _safe_float(item.get("openingPrice"))
+                chg_p = _safe_float(item.get("percentagePriceChange"))
                 stats_d = item.get("statsDate")
                 up_lim = _safe_float(item.get("upperPriceRange"))
                 lo_lim = _safe_float(item.get("lowerPriceRange"))
+                sec_t = str(item.get("securitySubType") or sec_type_default).strip().upper()
+                isin_v = str(item.get("isin") or "").strip().upper() or None
+                track_h = (currency == "USD") or (tracked_zse is not None and sym in tracked_zse)
                 store.set_price(
                     sym,
-                    float(raw_price),
-                    source="vfex-direct",
-                    open_price=float(open_p) if open_p is not None else None,
-                    change_pct=float(chg_p) if chg_p is not None else None,
+                    p_val,
+                    source=source,
+                    open_price=(open_p / scale_div) if open_p is not None else None,
+                    change_pct=chg_p,
                     date=str(stats_d) if stats_d else None,
-                    currency="USD",
+                    currency=currency,
                     company_name=item.get("symbolName"),
+                    track_history=track_h,
                     save=False,
-                    upper_limit=up_lim,
-                    lower_limit=lo_lim,
+                    upper_limit=(up_lim / scale_div) if up_lim is not None else None,
+                    lower_limit=(lo_lim / scale_div) if lo_lim is not None else None,
+                    isin=isin_v,
+                    security_type=sec_t,
                 )
                 updated += 1
     return updated
+
+
+def _ingest_vfex_direct_payload(store: VFEXStore, payload: Any) -> int:
+    return _ingest_price_sheet_payload(store, payload, currency="USD", scale_div=1.0, strip_vx=True, source="vfex-direct")
+
+
+def _ingest_zse_direct_payload(store: VFEXStore, payload: Any, tracked_zse: set[str] | None = None) -> int:
+    return _ingest_price_sheet_payload(
+        store, payload, currency="ZWG", scale_div=100.0, strip_vx=False, source="zse-direct", tracked_zse=tracked_zse
+    )
 
 
 def _ingest_ctrade_rows(
@@ -5025,6 +5246,7 @@ def _ingest_ctrade_rows(
     strip_vx: bool,
     today: str,
     tracked_zse: set[str],
+    security_type: str | None = None,
 ) -> int:
     if not isinstance(rows, list):
         return 0
@@ -5044,6 +5266,7 @@ def _ingest_ctrade_rows(
         bid_vol = _safe_int(item.get("Bid_Volume"))
         ask_vol = _safe_int(item.get("Ask_Volume"))
         cname = str(item.get("FullCompanyName") or "").strip() or None
+        isin_v = str(item.get("ISIN") or "").strip().upper() or None
         track_hist = (currency == "USD") or (sym in tracked_zse)
 
         effective_price = cur_p if (cur_p is not None and cur_p > 0) else (
@@ -5065,6 +5288,8 @@ def _ingest_ctrade_rows(
                 company_name=cname,
                 track_history=track_hist,
                 save=False,
+                isin=isin_v,
+                security_type=security_type,
             )
             updated += 1
         elif sym in store.state["prices"]:
@@ -5076,8 +5301,53 @@ def _ingest_ctrade_rows(
                 ask_volume=ask_vol,
                 currency=currency,
                 company_name=cname,
+                isin=isin_v,
+                security_type=security_type,
             )
             updated += 1
+    return updated
+
+
+def _ingest_finsec_rows(store: VFEXStore, rows: Any, today: str, tracked_zse: set[str]) -> int:
+    """Ingest FINSEC over-the-counter quotes & depth from C-TRADE marketwatchbidoffer feed."""
+    if not isinstance(rows, list):
+        return 0
+    updated = 0
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        sym = str(item.get("market_company") or "").strip().upper()
+        if not sym:
+            continue
+        lp = _safe_float(item.get("market_lp") or item.get("market_vwap"))
+        if lp is None or lp <= 0:
+            continue
+        op = _safe_float(item.get("market_open"))
+        chg_p = _safe_float(item.get("market_per_change"))
+        bid = _safe_float(item.get("market_bp"))
+        ask = _safe_float(item.get("market_ap"))
+        bid_vol = _safe_int(item.get("market_bbv"))
+        ask_vol = _safe_int(item.get("market_va"))
+        cname = str(item.get("FullCompanyName") or "").strip() or None
+        sec_t = str(item.get("Category") or "FINSEC").strip().upper()
+        store.set_price(
+            sym,
+            lp,
+            source="c-trade-finsec",
+            open_price=op if (op is not None and op > 0) else None,
+            change_pct=chg_p,
+            date=today,
+            best_bid=bid,
+            best_ask=ask,
+            bid_volume=bid_vol,
+            ask_volume=ask_vol,
+            currency="ZWG",
+            company_name=cname,
+            track_history=(sym in tracked_zse),
+            save=False,
+            security_type=sec_t,
+        )
+        updated += 1
     return updated
 
 
@@ -5088,8 +5358,11 @@ def fetch_vfex_prices(
     ttl_seconds: int = 900,
     ctrade_vfex_url: str | None = CTRADE_VFEX_URL,
     ctrade_zse_url: str | None = CTRADE_ZSE_URL,
+    zse_direct_url: str | None = ZSE_DIRECT_URL,
+    ctrade_etf_url: str | None = CTRADE_ETF_URL,
+    ctrade_finsec_url: str | None = CTRADE_FINSEC_URL,
 ) -> dict[str, Any]:
-    """Fetch VFEX + C-TRADE prices & market depth when TTL expires or forced, preserving cached data on failure."""
+    """Fetch VFEX, ZSE Direct & C-TRADE (Equities, ETFs, REITs, FINSEC) prices, circuit breakers & depth."""
     now = datetime.now(timezone.utc)
     today = now.date().isoformat()
     if not force:
@@ -5116,6 +5389,14 @@ def fetch_vfex_prices(
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
         errors.append(str(exc))
 
+    if not custom_override and zse_direct_url:
+        try:
+            st, zse_sh = _fetch_json(zse_direct_url)
+            statuses.append(st)
+            updated += _ingest_zse_direct_payload(store, zse_sh, tracked_zse=tracked_zse)
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
+            errors.append(str(exc))
+
     if not custom_override and ctrade_vfex_url:
         try:
             st, ct_vfex = _fetch_json(ctrade_vfex_url)
@@ -5129,6 +5410,22 @@ def fetch_vfex_prices(
             st, ct_zse = _fetch_json(ctrade_zse_url)
             statuses.append(st)
             updated += _ingest_ctrade_rows(store, ct_zse, "ZWG", False, today, tracked_zse)
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
+            errors.append(str(exc))
+
+    if not custom_override and ctrade_etf_url:
+        try:
+            st, ct_etf = _fetch_json(ctrade_etf_url)
+            statuses.append(st)
+            updated += _ingest_ctrade_rows(store, ct_etf, "ZWG", False, today, tracked_zse, security_type="ETF")
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
+            errors.append(str(exc))
+
+    if not custom_override and ctrade_finsec_url:
+        try:
+            st, ct_fin = _fetch_json(ctrade_finsec_url)
+            statuses.append(st)
+            updated += _ingest_finsec_rows(store, ct_fin, today, tracked_zse)
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, ValueError) as exc:
             errors.append(str(exc))
 
@@ -5236,6 +5533,7 @@ def _parse_dtr_exchange_payload(
             if isinstance(stats_arr, list) and len(stats_arr) >= 3
             else ""
         )
+        mvs = content.get("moversAndShakers") or {}
         cand_sum = {
             "exchange": exch,
             "index_name": idx_name,
@@ -5247,6 +5545,9 @@ def _parse_dtr_exchange_payload(
             "foreign_buy": round(f_buy, 2),
             "foreign_sell": round(f_sell, 2),
             "foreign_net": round(f_buy - f_sell, 2),
+            "total_market_cap": round(float(content.get("totalMarketCapitalisation") or 0.0), 2),
+            "movers": list(mvs.get("movers") or [])[:5],
+            "shakers": list(mvs.get("shakers") or [])[:5],
             "stats_date": stats_str,
         }
         if not best_summary or "ALL" in idx_name.upper():
@@ -5286,13 +5587,56 @@ def _parse_dtr_exchange_payload(
     return best_summary, counters, blue_chips
 
 
+def _parse_dtr_foreign_flows(payload: Any, exchange: str, stored_syms: set[str]) -> dict[str, dict[str, Any]]:
+    """Extract per-counter institutional foreign buys and sells from VFEX/ZSE Daily Trade Report."""
+    rows = payload.get("data", payload) if isinstance(payload, dict) else payload
+    if not isinstance(rows, list):
+        return {}
+    exch = exchange.upper()
+    cur_code = "ZWG" if exch == "ZSE" else "USD"
+    flows: dict[str, dict[str, Any]] = {}
+
+    def _norm_sym(raw_c: str) -> str:
+        s = raw_c.strip().upper()
+        if not s or "NO_FOREIGN" in s:
+            return ""
+        s = s[:-3] if s.endswith(".VX") else s
+        if s not in stored_syms and s == "INN" and "INSC" in stored_syms:
+            return "INSC"
+        return s
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        raw_c = row.get("content")
+        try:
+            content = json.loads(raw_c) if isinstance(raw_c, str) else raw_c
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(content, dict):
+            continue
+        top5 = content.get("topFiveCounters") or {}
+        for side_key, val_field, vol_field in (("foreignPurchases", "buy_val", "buy_vol"), ("foreignSales", "sell_val", "sell_vol")):
+            for item in top5.get(side_key) or []:
+                if not isinstance(item, dict):
+                    continue
+                sym = _norm_sym(str(item.get("counter") or ""))
+                if not sym:
+                    continue
+                rec = flows.setdefault(sym, {"symbol": sym, "currency": cur_code, "buy_val": 0.0, "sell_val": 0.0, "buy_vol": 0.0, "sell_vol": 0.0, "net_val": 0.0})
+                rec[val_field] = round(rec[val_field] + float(item.get("value") or 0.0), 2)
+                rec[vol_field] = round(rec[vol_field] + float(item.get("volume") or 0.0), 0)
+                rec["net_val"] = round(rec["buy_val"] - rec["sell_val"], 2)
+    return flows
+
+
 def fetch_exchange_intelligence(
     store: VFEXStore,
     force: bool = False,
     ttl_seconds: int = INTEL_CACHE_TTL_SECONDS,
     fetcher: Any = None,
 ) -> dict[str, Any]:
-    """Fetch VFEX/ZSE DTR turnover, foreign flow, index regime & top market-cap data on a 5m TTL cache."""
+    """Fetch VFEX/ZSE DTR turnover, foreign flows, indices, unit trusts & top market-cap data on a 5m TTL."""
     now = datetime.now(timezone.utc)
     cached = store.state.get("market_intel")
     if not force and isinstance(cached, dict) and cached.get("fetched_at"):
@@ -5301,7 +5645,12 @@ def fetch_exchange_intelligence(
             return cached
 
     text_getter = fetcher or _fetch_text
-    endpoints = [("vfex", VFEX_DTR_URL), ("zse", ZSE_DTR_URL)]
+    endpoints = [
+        ("vfex", VFEX_DTR_URL),
+        ("zse", ZSE_DTR_URL),
+        ("indices", CTRADE_INDICES_URL),
+        ("unit_trusts", CTRADE_UNIT_TRUSTS_URL),
+    ]
     alias_idx = _build_symbol_alias_index(store)
     stored_syms = set(store.state.get("prices", {}).keys()) | set(KNOWN_VFEX_SYMBOLS.keys()) | set(store.state.get("watchlist", [])) | set(store.state.get("portfolio", {}).keys())
 
@@ -5312,7 +5661,7 @@ def fetch_exchange_intelligence(
         except Exception as exc:
             return ex, "", str(exc)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
         results = list(pool.map(_pull, endpoints))
 
     out: dict[str, Any] = {
@@ -5321,6 +5670,9 @@ def fetch_exchange_intelligence(
         "zse": dict(cached.get("zse", {})) if isinstance(cached, dict) else {},
         "counters": {},
         "blue_chips": {},
+        "foreign_counters": {},
+        "indices": list(cached.get("indices", [])) if isinstance(cached, dict) else [],
+        "unit_trusts": list(cached.get("unit_trusts", [])) if isinstance(cached, dict) else [],
     }
     any_ok = False
     for ex, raw_txt, err in results:
@@ -5330,14 +5682,51 @@ def fetch_exchange_intelligence(
             payload = json.loads(raw_txt)
         except json.JSONDecodeError:
             continue
+        if ex == "indices" and isinstance(payload, list):
+            out["indices"] = [
+                {
+                    "name": str(r.get("Indexcode") or r.get("IndexSymbol") or "").strip(),
+                    "symbol": str(r.get("IndexSymbol") or "").strip(),
+                    "level": float(_safe_float(r.get("IndexLevel")) or 0.0),
+                    "change": float(_safe_float(r.get("IndexChange")) or 0.0),
+                    "high": float(_safe_float(r.get("High")) or 0.0),
+                    "low": float(_safe_float(r.get("Low")) or 0.0),
+                    "one_week": float(_safe_float(r.get("one_week")) or 0.0),
+                    "one_month": float(_safe_float(r.get("one_month")) or 0.0),
+                    "one_year": float(_safe_float(r.get("one_year")) or 0.0),
+                    "high_52w": float(_safe_float(r.get("fifty_two_high")) or 0.0),
+                }
+                for r in payload
+                if isinstance(r, dict) and r.get("Indexcode")
+            ]
+            any_ok = any_ok or bool(out["indices"])
+            continue
+        if ex == "unit_trusts" and isinstance(payload, list):
+            out["unit_trusts"] = [
+                {
+                    "symbol": str(r.get("company") or "").strip(),
+                    "name": str(r.get("fullName") or "").strip(),
+                    "currency": str(r.get("currency") or "USD").upper(),
+                    "price": float(_safe_float(r.get("initialPrice")) or 0.0),
+                    "status": str(r.get("status") or ""),
+                    "type": str(r.get("type") or r.get("securityType") or ""),
+                }
+                for r in payload
+                if isinstance(r, dict) and r.get("company")
+            ]
+            any_ok = any_ok or bool(out["unit_trusts"])
+            continue
+
         summary_ex, c_map, bc_map = _parse_dtr_exchange_payload(payload, ex.upper(), alias_idx, stored_syms)
+        fc_map = _parse_dtr_foreign_flows(payload, ex.upper(), stored_syms)
         if summary_ex:
             out[ex] = summary_ex
             any_ok = True
         out["counters"].update(c_map)
         out["blue_chips"].update(bc_map)
+        out["foreign_counters"].update(fc_map)
 
-    if any_ok or out["counters"] or out["blue_chips"]:
+    if any_ok or out["counters"] or out["blue_chips"] or out["foreign_counters"] or out["indices"]:
         store.state["market_intel"] = out
         store.save()
         return out
@@ -5396,6 +5785,8 @@ def fetch_vfex_news(
         ("vfex_ann", VFEX_ANNOUNCEMENTS_URL),
         ("vfex_issuer", VFEX_ISSUER_DOCS_URL),
         ("zse_ann", ZSE_ANNOUNCEMENTS_URL),
+        ("zse_issuer", ZSE_ISSUER_DOCS_URL),
+        ("ctrade_notices", CTRADE_NOTICES_URL),
         ("rss_mkt", rss_general),
     ]
     if tracked_q:
@@ -5411,7 +5802,7 @@ def fetch_vfex_news(
         except Exception as exc:
             return tag, "", str(exc)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
         results = list(pool.map(_pull, endpoints))
 
     for tag, payload, err in results:
@@ -5421,6 +5812,21 @@ def fetch_vfex_news(
             continue
         if tag.startswith("rss_"):
             raw_records.extend(_parse_google_news_rss(payload))
+        elif tag == "ctrade_notices":
+            try:
+                parsed_cn = json.loads(payload)
+            except json.JSONDecodeError:
+                continue
+            for n in (parsed_cn.get("notices") or []) if isinstance(parsed_cn, dict) else []:
+                if isinstance(n, dict) and (n.get("title") or n.get("message") or n.get("notice")):
+                    raw_records.append({
+                        "title": str(n.get("title") or n.get("notice") or n.get("message") or "").strip(),
+                        "url": str(n.get("url") or f"{CTRADE_BASE_URL}/"),
+                        "source": "C-TRADE Official",
+                        "pub_raw": str(n.get("created_at") or n.get("date") or ""),
+                        "official": True,
+                        "raw_category": "notices",
+                    })
         else:
             try:
                 parsed_json = json.loads(payload)
@@ -5757,6 +6163,31 @@ def format_panel_json(
         if len(overview_news) >= 3:
             break
 
+    ct_acct = store.state.get("synced_accounts", {}).get("ctrade") or {}
+    portal_orders = list(ct_acct.get("orders") or [])[:25]
+    raw_ptx = list(ct_acct.get("transactions") or [])[:40]
+    existing_trade_keys = {
+        (str(t.get("date") or ""), str(t.get("symbol") or "").upper(), round(float(t.get("shares") or 0.0), 3), str(t.get("action") or "").upper())
+        for t in store.state.get("trades", [])
+    }
+    existing_div_keys = {
+        (str(d.get("date") or ""), str(d.get("symbol") or "").upper(), round(float(d.get("amount") or 0.0), 2))
+        for d in store.state.get("dividends", [])
+    }
+    portal_transactions: list[dict[str, Any]] = []
+    for tx in raw_ptx:
+        sym_k = str(tx.get("symbol") or "").upper()
+        dt_k = str(tx.get("date") or "")
+        sh_k = round(float(tx.get("shares") or 0.0), 3)
+        amt_k = round(float(tx.get("amount") or 0.0), 2)
+        t_up = str(tx.get("type") or "").upper()
+        side_k = "BUY" if "BUY" in t_up else ("SELL" if "SELL" in t_up else ("DIV" if "DIV" in t_up else ""))
+        dup = (
+            ((dt_k, sym_k, sh_k, side_k) in existing_trade_keys) if side_k in ("BUY", "SELL")
+            else (((dt_k, sym_k, amt_k) in existing_div_keys) if side_k == "DIV" else False)
+        )
+        portal_transactions.append({**tx, "trade_side": side_k, "already_imported": dup})
+
     return {
         **wb,
         "total_value": round(summary["total_value"], 2),
@@ -5821,6 +6252,8 @@ def format_panel_json(
         },
         "account": store.ctrade_status(),
         "accounts": store.accounts_status(),
+        "portal_orders": portal_orders,
+        "portal_transactions": portal_transactions,
         "connected_count": sum(1 for v in store.accounts_status().values() if v.get("connected")),
         "wallet_cash_usd": summary["wallet_cash_usd"],
         "wallet_cash_zwg": summary["wallet_cash_zwg"],

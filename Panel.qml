@@ -42,6 +42,7 @@ Panel {
     property int calYear: (new Date()).getFullYear()
     property int calMonth: (new Date()).getMonth()
     property bool wideLayout: true
+    property bool fullPageMode: true
     property bool accountDrawerOpen: false
     property string activeTab: "overview"
     property string signalFilter: "all"
@@ -686,8 +687,15 @@ Panel {
         bar: root.bar
         open: root.opened
         focusTarget: panel.loadedContent
-        contentWidth: panel.fittedContentWidth(Style.space(root.wideLayout ? 980 : 440))
-        contentHeight: panel.fittedContentHeight(panel.loadedContentHeight)
+        margin: root.fullPageMode ? Style.space(6) : Style.gapsOut
+        gap: root.fullPageMode ? Style.space(4) : Style.gapsOut
+        centerOnBar: root.fullPageMode
+        contentWidth: root.fullPageMode
+            ? (panel.availableCardWidth > 0 ? panel.availableCardWidth : panel.fittedContentWidth(Style.space(1280)))
+            : panel.fittedContentWidth(Style.space(root.wideLayout ? 980 : 440))
+        contentHeight: root.fullPageMode
+            ? (panel.availableCardHeight > 0 ? panel.availableCardHeight : panel.fittedContentHeight(panel.loadedContentHeight))
+            : panel.fittedContentHeight(panel.loadedContentHeight)
 
         content: PanelKeyCatcher {
             id: keyCatcher
@@ -698,9 +706,17 @@ Panel {
                 root.switchPanel(direction)
             }
 
+            Flickable {
+                id: mainFlick
+                anchors.fill: parent
+                contentWidth: width
+                contentHeight: contentColumn.implicitHeight
+                clip: true
+                boundsBehavior: Flickable.StopAtBounds
+
             Column {
                 id: contentColumn
-                width: parent.width
+                width: mainFlick.width
                 spacing: Style.space(8)
 
                 // === WORKSTATION HEADER & LIVE MARKET TELEMETRY RIBBON ===
@@ -740,7 +756,7 @@ Panel {
                             }
 
                             Column {
-                                width: Math.max(Style.space(180), parent.width - brandMark.width - mktBadge.width - acctToggleBtn.width - refreshBtn.width - Style.space(28))
+                                width: Math.max(Style.space(180), parent.width - brandMark.width - mktBadge.width - acctToggleBtn.width - refreshBtn.width - pageSizeToggleBtn.width - closePanelBtn.width - Style.space(44))
                                 anchors.verticalCenter: parent.verticalCenter
                                 spacing: 0
                                 Text {
@@ -850,6 +866,59 @@ Panel {
                                         if (root.hostWidget && typeof root.hostWidget.refresh === "function")
                                             root.hostWidget.refresh(true)
                                     }
+                                }
+                            }
+
+                            Rectangle {
+                                id: pageSizeToggleBtn
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: pstTxt.implicitWidth + Style.space(10)
+                                height: Style.space(22)
+                                radius: 4
+                                color: "#313244"
+                                border.color: "#45475a"
+                                border.width: 1
+                                Text {
+                                    id: pstTxt
+                                    anchors.centerIn: parent
+                                    text: root.fullPageMode ? "⊟ Compact Popup" : "⊞ Full Screen"
+                                    color: "#cdd6f4"
+                                    font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                    font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
+                                    font.bold: true
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        root.fullPageMode = !root.fullPageMode
+                                        Qt.callLater(root.repaintCanvases)
+                                    }
+                                }
+                            }
+
+                            Rectangle {
+                                id: closePanelBtn
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: cpTxt.implicitWidth + Style.space(10)
+                                height: Style.space(22)
+                                radius: 4
+                                color: "#2d1d24"
+                                border.color: "#f38ba8"
+                                border.width: 1
+                                Text {
+                                    id: cpTxt
+                                    anchors.centerIn: parent
+                                    text: "× Close"
+                                    color: "#f38ba8"
+                                    font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                    font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
+                                    font.bold: true
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: root.close()
                                 }
                             }
                         }
@@ -1017,6 +1086,31 @@ Panel {
                                 elide: Text.ElideLeft
                             }
                         }
+
+                        // Benchmark Sector Index & Market Capitalisation Pulse
+                        Flow {
+                            width: parent.width
+                            spacing: Style.space(8)
+                            visible: (((root.summaryData.market_intel || ({})).indices || []).length > 0) || Number((((root.summaryData.market_intel || ({})).vfex || ({})).total_market_cap) || 0) > 0
+                            Repeater {
+                                model: ((root.summaryData.market_intel || ({})).indices || []).slice(0, 4)
+                                delegate: Text {
+                                    text: modelData.name + ": " + Number(modelData.level || 0).toFixed(2) + (Number(modelData.one_month || 0) > 0 ? (" (1-Month " + Number(modelData.one_month).toFixed(2) + ")") : "")
+                                    color: Number(modelData.change || 0) >= 0 ? "#89dceb" : "#f38ba8"
+                                    font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                    font.pixelSize: 9
+                                }
+                            }
+                            Text {
+                                property real vmcap: Number((((root.summaryData.market_intel || ({})).vfex || ({})).total_market_cap) || 0)
+                                visible: vmcap > 0
+                                text: "VFEX Market Capitalisation: $" + (vmcap / 1000000000).toFixed(2) + " Billion"
+                                color: "#a6e3a1"
+                                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                font.pixelSize: 9
+                                font.bold: true
+                            }
+                        }
                     }
                 }
 
@@ -1105,7 +1199,7 @@ Panel {
                     }
                 }
 
-                // === TAB 1: ASYMMETRIC WORKSTATION (54% MAIN STAGE / 46% SIDEBAR) ===
+                // === TAB 1: RESPONSIVE 3-COLUMN FULL-PAGE WORKSTATION / 2-COLUMN POPUP ===
                 Flow {
                     id: mainGrid
                     visible: root.activeTab === "overview"
@@ -1114,7 +1208,9 @@ Panel {
 
                     Column {
                         id: leftPaneCol
-                        width: root.wideLayout ? (mainGrid.width - Style.space(10)) * 0.54 : mainGrid.width
+                        width: root.fullPageMode
+                            ? Math.floor((mainGrid.width - Style.space(22)) * 0.33)
+                            : (root.wideLayout ? Math.floor((mainGrid.width - Style.space(12)) * 0.54) : mainGrid.width)
                         spacing: Style.space(10)
 
                 Rectangle {
@@ -1387,7 +1483,7 @@ Panel {
                                         if (pts.length === 0) return ""
                                         var idx = (root.hoveredEquityIdx >= 0 && root.hoveredEquityIdx < pts.length) ? root.hoveredEquityIdx : (pts.length - 1)
                                         var p = pts[idx]
-                                        return p.date + " • $" + Number(p.value).toFixed(2) + " vs $" + Number(p.cost).toFixed(2)
+                                        return p.date + " • $" + Number(p.value).toFixed(2) + " versus $" + Number(p.cost).toFixed(2)
                                     }
                                     color: "#cdd6f4"
                                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
@@ -1398,7 +1494,7 @@ Panel {
                             Canvas {
                                 id: equityCanvas
                                 width: parent.width
-                                height: Style.space(86)
+                                height: root.fullPageMode ? Style.space(128) : Style.space(86)
                                 onWidthChanged: requestPaint()
                                 Component.onCompleted: {
                                     root.equityCanvasRef = equityCanvas
@@ -2190,6 +2286,12 @@ Panel {
                     }
                 }
 
+                Column {
+                    id: centerPaneCol
+                    parent: root.fullPageMode ? centerColHost : leftPaneCol
+                    width: parent ? parent.width : leftPaneCol.width
+                    spacing: Style.space(10)
+
                 Rectangle {
                     id: signalsCard
                     width: parent.width
@@ -2773,11 +2875,21 @@ Panel {
                         }
                     }
                 }
+                }
+                    }
+
+                    Column {
+                        id: centerColHost
+                        visible: root.fullPageMode
+                        width: Math.floor((mainGrid.width - Style.space(22)) * 0.35)
+                        spacing: Style.space(10)
                     }
 
                     Column {
                         id: rightPaneCol
-                        width: root.wideLayout ? (mainGrid.width - Style.space(10)) * 0.46 : mainGrid.width
+                        width: root.fullPageMode
+                            ? Math.floor((mainGrid.width - Style.space(22)) * 0.32)
+                            : (root.wideLayout ? Math.floor((mainGrid.width - Style.space(12)) * 0.46) : mainGrid.width)
                         spacing: Style.space(10)
 
                 Rectangle {
@@ -3352,10 +3464,10 @@ Panel {
                             }
                         }
 
-                        // 165px Interactive Price Canvas with Bid/Ask Corridor + Floating OHLC HUD
+                        // Interactive Price Canvas with Bid/Ask Corridor + Floating Crosshair HUD
                         Item {
                             width: parent.width
-                            height: Style.space(162)
+                            height: root.fullPageMode ? Style.space(210) : Style.space(162)
 
                             Canvas {
                                 id: candleCanvas
@@ -4501,7 +4613,9 @@ Panel {
 
                     Rectangle {
                         width: parent.width
-                        height: root.wideLayout ? Style.space(430) : Style.space(340)
+                        height: root.fullPageMode
+                            ? Math.max(Style.space(520), panel.availableCardHeight - Style.space(220))
+                            : (root.wideLayout ? Style.space(430) : Style.space(340))
                         radius: 8
                         color: "#181825"
                         border.color: "#313244"
@@ -4518,7 +4632,7 @@ Panel {
                                 id: hmGrid
                                 visible: root.screenerViewMode === "heatmap"
                                 width: parent.width
-                                columns: root.wideLayout ? 6 : 3
+                                columns: root.fullPageMode ? 8 : (root.wideLayout ? 6 : 3)
                                 columnSpacing: Style.space(5)
                                 rowSpacing: Style.space(5)
 
@@ -4668,7 +4782,12 @@ Panel {
                                                 width: scrTableCol.width * 0.16
                                                 anchors.verticalCenter: parent.verticalCenter
                                                 Text { text: modelData.symbol; color: modelData.currency === "ZWG" ? "#f9e2af" : "#cdd6f4"; font.pixelSize: Style.font.small ? Style.font.small - 1 : 10; font.bold: true; elide: Text.ElideRight; width: parent.width }
-                                                Text { text: modelData.currency === "ZWG" ? "ZSE" : "VFEX"; color: "#6c7086"; font.pixelSize: 8 }
+                                                Text {
+                                                    property string st: String(modelData.security_type || "EQUITY")
+                                                    text: (modelData.currency === "ZWG" ? "ZSE" : "VFEX") + (st && st !== "EQUITY" ? (" • " + st) : "")
+                                                    color: st !== "EQUITY" ? "#89dceb" : "#6c7086"
+                                                    font.pixelSize: 8
+                                                }
                                             }
                                             Column {
                                                 width: scrTableCol.width * 0.13
@@ -4908,7 +5027,7 @@ Panel {
                                 Canvas {
                                     id: projCanvas
                                     width: parent.width
-                                    height: Style.space(116)
+                                    height: root.fullPageMode ? Style.space(185) : Style.space(116)
                                     onWidthChanged: requestPaint()
                                     Component.onCompleted: { root.projCanvasRef = projCanvas; requestPaint() }
                                     onPaint: {
@@ -5157,6 +5276,86 @@ Panel {
                                     Text { width: dcaTabCol.width * 0.30; text: Number(modelData.current_pct || 0).toFixed(0) + "% → " + Number(modelData.target_pct || 0).toFixed(0) + "%"; color: "#a6adc8"; font.pixelSize: Style.font.small || Style.font.body }
                                     Text { width: dcaTabCol.width * 0.25; horizontalAlignment: Text.AlignRight; text: "$" + Number(modelData.alloc_usd || 0).toFixed(2); color: "#a6e3a1"; font.pixelSize: Style.font.small || Style.font.body }
                                     Text { width: dcaTabCol.width * 0.25; horizontalAlignment: Text.AlignRight; text: Number(modelData.shares || 0).toFixed(2) + " shares"; color: "#cdd6f4"; font.pixelSize: Style.font.small || Style.font.body }
+                                }
+                            }
+                        }
+                    }
+
+                    // Market Indices, Unit Trusts & Institutional Foreign Flows
+                    Grid {
+                        width: parent.width
+                        columns: root.wideLayout ? 2 : 1
+                        columnSpacing: Style.space(8)
+                        rowSpacing: Style.space(8)
+                        visible: (((root.summaryData.market_intel || ({})).indices || []).length > 0) || (Object.keys((root.summaryData.market_intel || ({})).foreign_counters || ({})).length > 0)
+
+                        Rectangle {
+                            width: root.wideLayout ? (analyticsTabCol.width - Style.space(8)) / 2 : analyticsTabCol.width
+                            height: idxCol.implicitHeight + Style.space(14)
+                            radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
+                            Column {
+                                id: idxCol
+                                anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(7) }
+                                spacing: Style.space(4)
+                                Text { text: "Live Market Indices & Unit Trusts"; color: "#89dceb"; font.pixelSize: Style.font.body; font.bold: true }
+                                Repeater {
+                                    model: ((root.summaryData.market_intel || ({})).indices || []).slice(0, 8)
+                                    delegate: Row {
+                                        width: idxCol.width
+                                        Text { width: idxCol.width * 0.42; text: modelData.name; color: "#cdd6f4"; font.pixelSize: 9; font.bold: true; elide: Text.ElideRight }
+                                        Text { width: idxCol.width * 0.22; horizontalAlignment: Text.AlignRight; text: Number(modelData.level || 0).toFixed(2); color: "#89b4fa"; font.pixelSize: 9 }
+                                        Text { width: idxCol.width * 0.36; horizontalAlignment: Text.AlignRight; text: "1-Month " + Number(modelData.one_month || 0).toFixed(0) + " • High " + Number(modelData.high_52w || 0).toFixed(0); color: "#a6adc8"; font.pixelSize: 8; elide: Text.ElideLeft }
+                                    }
+                                }
+                                Text {
+                                    visible: ((root.summaryData.market_intel || ({})).unit_trusts || []).length > 0
+                                    text: "Unit Trusts (" + ((root.summaryData.market_intel || ({})).unit_trusts || []).length + ")"
+                                    color: "#cba6f7"; font.pixelSize: 9; font.bold: true
+                                }
+                                Repeater {
+                                    model: ((root.summaryData.market_intel || ({})).unit_trusts || []).slice(0, 5)
+                                    delegate: Row {
+                                        width: idxCol.width
+                                        Text { width: idxCol.width * 0.65; text: modelData.name || modelData.symbol; color: "#cdd6f4"; font.pixelSize: 9; elide: Text.ElideRight }
+                                        Text { width: idxCol.width * 0.35; horizontalAlignment: Text.AlignRight; text: root.fmtShortMoney(modelData.price, modelData.currency) + " (" + modelData.currency + ")"; color: "#a6e3a1"; font.pixelSize: 9 }
+                                    }
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            width: root.wideLayout ? (analyticsTabCol.width - Style.space(8)) / 2 : analyticsTabCol.width
+                            height: ffCol.implicitHeight + Style.space(14)
+                            radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
+                            Column {
+                                id: ffCol
+                                anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(7) }
+                                spacing: Style.space(4)
+                                Text { text: "Exchange Foreign Flow Leaders & Movers"; color: "#f9e2af"; font.pixelSize: Style.font.body; font.bold: true }
+                                property var fKeys: Object.keys((root.summaryData.market_intel || ({})).foreign_counters || ({}))
+                                Text {
+                                    visible: ffCol.fKeys.length === 0
+                                    text: "No counter-level foreign purchases or sales reported in the latest Daily Trade Report."
+                                    color: "#6c7086"; font.pixelSize: 9; wrapMode: Text.WordWrap; width: parent.width
+                                }
+                                Repeater {
+                                    model: ffCol.fKeys.slice(0, 6)
+                                    delegate: Row {
+                                        width: ffCol.width
+                                        property var fObj: ((root.summaryData.market_intel || ({})).foreign_counters || ({}))[modelData] || ({})
+                                        property real fNet: Number(fObj.net_val || 0)
+                                        Text { width: ffCol.width * 0.28; text: modelData; color: fObj.currency === "ZWG" ? "#f9e2af" : "#cdd6f4"; font.pixelSize: 9; font.bold: true }
+                                        Text { width: ffCol.width * 0.36; text: fNet >= 0 ? "Foreign Inflow" : "Foreign Outflow"; color: fNet >= 0 ? "#a6e3a1" : "#f38ba8"; font.pixelSize: 9 }
+                                        Text { width: ffCol.width * 0.36; horizontalAlignment: Text.AlignRight; text: root.fmtSignedMoney(fNet, fObj.currency || "USD"); color: fNet >= 0 ? "#a6e3a1" : "#f38ba8"; font.pixelSize: 9; font.bold: true }
+                                    }
+                                }
+                                Repeater {
+                                    model: (((root.summaryData.market_intel || ({})).vfex || ({})).movers || []).slice(0, 3)
+                                    delegate: Row {
+                                        width: ffCol.width
+                                        Text { width: ffCol.width * 0.65; text: "Mover: " + (modelData.counter || ""); color: "#a6adc8"; font.pixelSize: 8; elide: Text.ElideRight }
+                                        Text { width: ffCol.width * 0.35; horizontalAlignment: Text.AlignRight; text: (Number(modelData.percentageChange || 0) >= 0 ? "+" : "") + Number(modelData.percentageChange || 0).toFixed(2) + "%"; color: Number(modelData.percentageChange || 0) >= 0 ? "#a6e3a1" : "#f38ba8"; font.pixelSize: 8; font.bold: true }
+                                    }
                                 }
                             }
                         }
@@ -5812,10 +6011,82 @@ Panel {
                     Flow {
                         width: parent.width; spacing: Style.space(8)
 
-                        // LEFT COLUMN (58%): FIFO Trade Ledger + Dividends History
+                        // LEFT COLUMN (58%): Portal Cash & Orders + Trade History Ledger + Dividends History
                         Column {
                             width: root.wideLayout ? (ledgerTabCol.width - Style.space(8)) * 0.58 : ledgerTabCol.width
                             spacing: Style.space(8)
+
+                            Rectangle {
+                                width: parent.width
+                                visible: ((root.summaryData.portal_orders || []).length > 0) || ((root.summaryData.portal_transactions || []).length > 0) || Number(((root.summaryData.accounts || ({})).ctrade || ({})).cash_usd || 0) > 0 || Number(((root.summaryData.accounts || ({})).ctrade || ({})).cash_zwg || 0) > 0
+                                height: portalSyncCol.implicitHeight + Style.space(14)
+                                radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
+                                Column {
+                                    id: portalSyncCol
+                                    anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(7) }
+                                    spacing: Style.space(4)
+                                    property var ctMeta: ((root.summaryData.accounts || ({})).ctrade || ({}))
+                                    Row {
+                                        width: parent.width
+                                        Text { width: parent.width * 0.55; text: "Synced C-TRADE Cash, Orders & History"; color: "#89dceb"; font.pixelSize: Style.font.body; font.bold: true }
+                                        Text {
+                                            width: parent.width * 0.45; horizontalAlignment: Text.AlignRight
+                                            text: "Cash: $" + Number(portalSyncCol.ctMeta.cash_usd || 0).toFixed(2) + " USD • ZiG " + Number(portalSyncCol.ctMeta.cash_zwg || 0).toFixed(2)
+                                            color: "#a6e3a1"; font.pixelSize: 9; font.bold: true; elide: Text.ElideLeft
+                                        }
+                                    }
+                                    Text { visible: (root.summaryData.portal_orders || []).length > 0; text: "Open Working Orders (" + (root.summaryData.portal_orders || []).length + ")"; color: "#f9e2af"; font.pixelSize: 9; font.bold: true }
+                                    Repeater {
+                                        model: (root.summaryData.portal_orders || []).slice(0, 6)
+                                        delegate: Row {
+                                            width: portalSyncCol.width
+                                            Text { width: portalSyncCol.width * 0.25; text: modelData.side + " " + modelData.symbol; color: modelData.side === "SELL" ? "#f38ba8" : "#a6e3a1"; font.pixelSize: 9; font.bold: true }
+                                            Text { width: portalSyncCol.width * 0.45; text: Number(modelData.shares || 0) + " shares @ " + root.fmtPrice(modelData.price, modelData.currency); color: "#cdd6f4"; font.pixelSize: 9 }
+                                            Text { width: portalSyncCol.width * 0.30; horizontalAlignment: Text.AlignRight; text: modelData.status || "Active"; color: "#f9e2af"; font.pixelSize: 9 }
+                                        }
+                                    }
+                                    Text { visible: (root.summaryData.portal_transactions || []).length > 0; text: "Portal Statements (" + (root.summaryData.portal_transactions || []).length + ")"; color: "#cba6f7"; font.pixelSize: 9; font.bold: true }
+                                    Repeater {
+                                        model: (root.summaryData.portal_transactions || []).slice(0, 8)
+                                        delegate: Rectangle {
+                                            width: portalSyncCol.width; height: ptxRow.implicitHeight + 6; radius: 4; color: "#11111b"
+                                            Row {
+                                                id: ptxRow
+                                                anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: 4 }
+                                                spacing: 4
+                                                Text { width: parent.width * 0.17; text: modelData.date || "--"; color: "#6c7086"; font.pixelSize: 8; anchors.verticalCenter: parent.verticalCenter }
+                                                Text { width: parent.width * 0.38; text: (modelData.symbol ? (modelData.symbol + " • ") : "") + (modelData.description || modelData.type); color: "#cdd6f4"; font.pixelSize: 8; elide: Text.ElideRight; anchors.verticalCenter: parent.verticalCenter }
+                                                Text { width: parent.width * 0.23; horizontalAlignment: Text.AlignRight; text: root.fmtShortMoney(modelData.amount, modelData.currency); color: "#89b4fa"; font.pixelSize: 8; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
+                                                Rectangle {
+                                                    width: parent.width * 0.22 - 12; height: Style.space(18); radius: 3
+                                                    color: modelData.already_imported ? "#1f3a27" : ((modelData.trade_side === "BUY" || modelData.trade_side === "SELL" || modelData.trade_side === "DIV") ? "#1e2e4a" : "transparent")
+                                                    Text {
+                                                        anchors.centerIn: parent
+                                                        text: modelData.already_imported ? "Imported" : (modelData.trade_side === "BUY" ? "Import Buy" : (modelData.trade_side === "SELL" ? "Import Sell" : (modelData.trade_side === "DIV" ? "Import Dividend" : "")))
+                                                        color: modelData.already_imported ? "#a6e3a1" : "#89b4fa"; font.pixelSize: 8; font.bold: true
+                                                    }
+                                                    MouseArea {
+                                                        anchors.fill: parent; cursorShape: Qt.PointingHandCursor
+                                                        enabled: !manualProc.running && !modelData.already_imported && (modelData.trade_side === "BUY" || modelData.trade_side === "SELL" || modelData.trade_side === "DIV")
+                                                        onClicked: {
+                                                            if (modelData.trade_side === "BUY" || modelData.trade_side === "SELL") {
+                                                                var act = modelData.trade_side === "SELL" ? "sell" : "buy"
+                                                                var args = [act, modelData.symbol, String(modelData.shares || 0), String(modelData.price || 0)]
+                                                                if (modelData.date) { args.push("--date"); args.push(modelData.date) }
+                                                                root.runCliCommand(args, false)
+                                                            } else if (modelData.trade_side === "DIV" && modelData.symbol) {
+                                                                var dargs = ["dividend", "add", modelData.symbol, String(modelData.amount || 0)]
+                                                                if (modelData.date) { dargs.push("--date"); dargs.push(modelData.date) }
+                                                                root.runCliCommand(dargs, false)
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
 
                             Rectangle {
                                 width: parent.width; height: ledgerCol.implicitHeight + Style.space(14); radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
@@ -6264,7 +6535,7 @@ Panel {
                             Canvas {
                                 id: agentEquityCanvas
                                 width: parent.width
-                                height: Style.space(104)
+                                height: root.fullPageMode ? Style.space(165) : Style.space(104)
                                 onWidthChanged: requestPaint()
                                 Component.onCompleted: { root.agentEquityCanvasRef = agentEquityCanvas; requestPaint() }
                                 onPaint: {
@@ -6729,6 +7000,7 @@ Panel {
                         }
                     }
                 }
+            }
             }
         }
     }
