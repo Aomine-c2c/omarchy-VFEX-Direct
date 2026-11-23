@@ -10,7 +10,7 @@ chmod +x "${SCRIPT_DIR}/vfex.py" "${SCRIPT_DIR}/vfex_tui.py"
 ln -sf "${SCRIPT_DIR}/vfex.py" "${BIN_DIR}/vfex"
 ln -sf "${SCRIPT_DIR}/vfex_tui.py" "${BIN_DIR}/vfex-tui"
 
-for f in Panel.qml BarWidget.qml NothingNotch.qml manifest.json vfex.py accounting.py intelligence.py newsroom.py planner.py exchange_adapters.py desktop_notify.py vfex_tui.py workspace_prefs.py ai_providers.py paper_arena.py mahoraga_weights.json; do
+for f in Panel.qml BarWidget.qml NothingNotch.qml manifest.json vfex.py accounting.py intelligence.py newsroom.py planner.py exchange_adapters.py desktop_notify.py vfex_tui.py workspace_prefs.py ai_providers.py paper_arena.py browser_connector.py paper_engine.py agent_framework.py mahoraga_weights.json; do
     if [ -e "${SCRIPT_DIR}/${f}" ]; then
         ln -sf "${SCRIPT_DIR}/${f}" "${PLUGIN_DIR}/${f}"
     fi

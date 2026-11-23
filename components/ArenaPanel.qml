@@ -63,19 +63,23 @@ Column {
         }
     }
 
-    // 2. 5-Strategy Paper Trading Arena Rankings (Logically Isolated)
+    // 2. 5-Strategy Paper Trading Arena Rankings & Performance Analytics (Logically Isolated)
     Rectangle {
-        width: parent.width; height: Math.max(150, rkCol.implicitHeight + 20); radius: theme.rSharp
-        color: theme.bgPanel; border.color: theme.borderSubtle; border.width: 1
+        width: parent.width; height: Math.max(160, rkCol.implicitHeight + 20); radius: theme.rSharp
+        color: theme.bgPanel; border.color: theme.warn; border.width: 1
         Column {
             id: rkCol
             anchors.fill: parent; anchors.margins: 10; spacing: 5
             Row {
-                width: parent.width
-                Text { text: "AI STRATEGY ARENA RANKINGS (ISOLATED SIMULATION — NEVER TOUCHES REAL ACCOUNTS)"; color: theme.accent; font.family: theme.fontMono; font.pixelSize: 9; font.bold: true }
-                Item { width: Math.max(4, parent.width - 540); height: 1 }
+                width: parent.width; spacing: 8
+                Rectangle {
+                    width: 118; height: 16; radius: theme.rSharp; color: theme.warnBg; border.color: theme.warn; border.width: 1
+                    Text { anchors.centerIn: parent; text: "◆ PAPER PORTFOLIO"; color: theme.warn; font.family: theme.fontMono; font.pixelSize: 8; font.bold: true }
+                }
+                Text { text: "STRATEGY ARENA, PERFORMANCE ANALYTICS & DECISION JOURNAL (ISOLATED)"; color: theme.textPrimary; font.family: theme.fontMono; font.pixelSize: 9; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
+                Item { width: Math.max(4, parent.width - 590); height: 1 }
                 Text {
-                    text: "REFRESH"; color: theme.textSecondary; font.family: theme.fontMono; font.pixelSize: 9
+                    text: "REFRESH"; color: theme.textSecondary; font.family: theme.fontMono; font.pixelSize: 9; anchors.verticalCenter: parent.verticalCenter
                     MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: arenaRoot.refreshArena() }
                 }
             }

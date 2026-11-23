@@ -287,14 +287,21 @@ Panel {
                         x: 10; y: 10
                         spacing: 12
 
-                        // SECTION 2: PORTFOLIO SUMMARY
+                        // SECTION 2: PORTFOLIO SUMMARY (LIVE PORTFOLIO)
                         Column {
                             id: secSummary
                             width: parent.width; spacing: 6
-                            Text {
-                                text: (root.secSummaryOpen ? "▾ " : "▸ ") + "02 // PORTFOLIO SUMMARY"
-                                color: theme.textMuted; font.family: theme.fontMono; font.pixelSize: 10; font.bold: true
-                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { root.secSummaryOpen = !root.secSummaryOpen; root.saveLayoutPrefs() } }
+                            Row {
+                                spacing: 8
+                                Text {
+                                    text: (root.secSummaryOpen ? "▾ " : "▸ ") + "02 // PORTFOLIO SUMMARY"
+                                    color: theme.textMuted; font.family: theme.fontMono; font.pixelSize: 10; font.bold: true
+                                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { root.secSummaryOpen = !root.secSummaryOpen; root.saveLayoutPrefs() } }
+                                }
+                                Rectangle {
+                                    width: 106; height: 16; radius: theme.rSharp; color: theme.gainBg; border.color: theme.gain; border.width: 1
+                                    Text { anchors.centerIn: parent; text: "● LIVE PORTFOLIO"; color: theme.gain; font.family: theme.fontMono; font.pixelSize: 8; font.bold: true }
+                                }
                             }
                             Grid {
                                 visible: root.secSummaryOpen
