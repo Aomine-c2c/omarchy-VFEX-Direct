@@ -6,13 +6,20 @@ BIN_DIR="${HOME}/.local/bin"
 PLUGIN_DIR="${HOME}/.config/omarchy/plugins/io.github.aomine-c2c.vfex-direct"
 
 mkdir -p "${BIN_DIR}" "${PLUGIN_DIR}"
-chmod +x "${SCRIPT_DIR}/vfex.py"
+chmod +x "${SCRIPT_DIR}/vfex.py" "${SCRIPT_DIR}/vfex_tui.py"
 ln -sf "${SCRIPT_DIR}/vfex.py" "${BIN_DIR}/vfex"
+ln -sf "${SCRIPT_DIR}/vfex_tui.py" "${BIN_DIR}/vfex-tui"
 
-for f in Panel.qml BarWidget.qml NothingNotch.qml manifest.json vfex.py; do
-    ln -sf "${SCRIPT_DIR}/${f}" "${PLUGIN_DIR}/${f}"
+for f in Panel.qml BarWidget.qml NothingNotch.qml manifest.json vfex.py accounting.py intelligence.py newsroom.py planner.py exchange_adapters.py desktop_notify.py vfex_tui.py mahoraga_weights.json; do
+    if [ -e "${SCRIPT_DIR}/${f}" ]; then
+        ln -sf "${SCRIPT_DIR}/${f}" "${PLUGIN_DIR}/${f}"
+    fi
 done
 
+if [ -d "${SCRIPT_DIR}/components" ]; then
+    ln -sfn "${SCRIPT_DIR}/components" "${PLUGIN_DIR}/components"
+fi
+
 echo "Installed vfex -> ${BIN_DIR}/vfex"
-echo "Symlinked plugin files -> ${PLUGIN_DIR}"
+echo "Symlinked plugin files & components -> ${PLUGIN_DIR}"
 echo "Make sure ${BIN_DIR} is in your PATH."

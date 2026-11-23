@@ -1,12 +1,13 @@
 import QtQuick
+import Quickshell.Io
 
 Flickable {
     id: plRoot
     property var theme
     property var summaryData: ({})
-    property string dcaBudget: "100"
+    property var plannerData: null
     property real monthlyContrib: 50
-    property real annualCagrPct: 12
+    property int horizonYears: 5
     property string targetSym: "INFR"
     property string targetPct: "25"
     signal runCli(var args, string label)
@@ -15,12 +16,34 @@ Flickable {
     contentHeight: plCol.implicitHeight + 20
     clip: true
 
-    function projectYears(yrs) {
-        var pv = Number(summaryData.total_value || 0)
-        var r = annualCagrPct / 100.0 / 12.0
-        var n = yrs * 12
-        var fv = pv * Math.pow(1 + r, n) + (r > 0 ? monthlyContrib * ((Math.pow(1 + r, n) - 1) / r) : monthlyContrib * n)
-        return fv
+    Component.onCompleted: loadPlanner()
+
+    Process {
+        id: plProc
+        property string buf: ""
+        stdout: SplitParser { splitMarker: ""; onRead: function(c) { plProc.buf += c } }
+        onExited: function(code) {
+            if (code === 0 && plProc.buf.trim() !== "") {
+                try { plRoot.plannerData = JSON.parse(plProc.buf) } catch (e) {}
+            }
+            plProc.buf = ""
+        }
+    }
+
+    function loadPlanner() {
+        if (plProc.running) return
+        plProc.buf = ""
+        var script = Qt.resolvedUrl("../planner.py").toString().replace("file://", "")
+        plProc.command = ["python3", script]
+        plProc.running = true
+    }
+
+    function projVal(cagrPct) {
+        var pv = Number(summaryData.total_value || 0) + Number(summaryData.wallet_cash_usd || 0)
+        var r = (cagrPct / 100.0) / 12.0
+        var n = plRoot.horizonYears * 12
+        var pmt = plRoot.monthlyContrib * (1.0 - 0.0104)
+        return pv * Math.pow(1 + r, n) + (r > 0 ? pmt * ((Math.pow(1 + r, n) - 1) / r) : pmt * n)
     }
 
     Column {
@@ -28,109 +51,129 @@ Flickable {
         width: parent.width
         spacing: 10
 
-        // 1. Investment Goal Selector
+        // 1. Contribution Planner Presets ($5 / $10 / $25 / $50 / $100) + Bull/Base/Bear Scenarios
         Rectangle {
-            width: parent.width; height: 64; radius: theme.rSharp
-            color: theme.bgPanel; border.color: theme.borderSubtle; border.width: 1
-            Column {
-                anchors.fill: parent; anchors.margins: 10; spacing: 6
-                Text { text: "INVESTMENT GOAL & STRATEGY HORIZON"; color: theme.textMuted; font.family: theme.fontMono; font.pixelSize: 9; font.bold: true }
-                Row {
-                    spacing: 8
-                    Repeater {
-                        model: [
-                            { k: "hybrid", t: "HYBRID (CORE + SWING)" },
-                            { k: "long", t: "LONG-TERM COMPOUNDER" },
-                            { k: "short", t: "SHORT-TERM SWING" }
-                        ]
-                        delegate: Rectangle {
-                            width: 165; height: 26; radius: theme.rSharp
-                            property bool active: String(summaryData.trading_goal || "hybrid") === modelData.k
-                            color: active ? theme.bgActive : theme.bgBlack
-                            border.color: active ? theme.accent : theme.borderDefault; border.width: 1
-                            Text { anchors.centerIn: parent; text: modelData.t; color: active ? theme.textPrimary : theme.textSecondary; font.family: theme.fontMono; font.pixelSize: 9; font.bold: active }
-                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: plRoot.runCli(["goal", modelData.k], "Set trading goal to " + modelData.k) }
-                        }
-                    }
-                }
-            }
-        }
-
-        // 2. Asset Allocation Targets & Rebalancing
-        Rectangle {
-            width: parent.width; height: Math.max(100, tgtCol.implicitHeight + 20); radius: theme.rSharp
-            color: theme.bgPanel; border.color: theme.borderSubtle; border.width: 1
-            Column {
-                id: tgtCol
-                anchors.fill: parent; anchors.margins: 10; spacing: 8
-                Text { text: "TARGET ASSET ALLOCATION & REBALANCING"; color: theme.textMuted; font.family: theme.fontMono; font.pixelSize: 9; font.bold: true }
-                Row {
-                    spacing: 6
-                    Rectangle {
-                        width: 80; height: 26; radius: theme.rSharp; color: theme.bgBlack; border.color: theme.borderDefault; border.width: 1
-                        TextInput { anchors.fill: parent; anchors.margins: 5; text: plRoot.targetSym; color: theme.textPrimary; font.family: theme.fontMono; font.pixelSize: 11; onTextChanged: plRoot.targetSym = text.toUpperCase() }
-                    }
-                    Rectangle {
-                        width: 60; height: 26; radius: theme.rSharp; color: theme.bgBlack; border.color: theme.borderDefault; border.width: 1
-                        TextInput { anchors.fill: parent; anchors.margins: 5; text: plRoot.targetPct; color: theme.textPrimary; font.family: theme.fontMono; font.pixelSize: 11; onTextChanged: plRoot.targetPct = text }
-                    }
-                    Rectangle {
-                        width: 96; height: 26; radius: theme.rSharp; color: theme.bgElevated; border.color: theme.borderDefault; border.width: 1
-                        Text { anchors.centerIn: parent; text: "SET TARGET %"; color: theme.textPrimary; font.family: theme.fontMono; font.pixelSize: 9; font.bold: true }
-                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: plRoot.runCli(["target", "set", plRoot.targetSym, plRoot.targetPct], "Set target " + plRoot.targetSym + " = " + plRoot.targetPct + "%") }
-                    }
-                }
-                Row {
-                    spacing: 6
-                    Text { text: "DCA BUDGET ($):"; color: theme.textSecondary; font.family: theme.fontMono; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter }
-                    Rectangle {
-                        width: 80; height: 26; radius: theme.rSharp; color: theme.bgBlack; border.color: theme.borderDefault; border.width: 1
-                        TextInput { anchors.fill: parent; anchors.margins: 5; text: plRoot.dcaBudget; color: theme.textPrimary; font.family: theme.fontMono; font.pixelSize: 11; onTextChanged: plRoot.dcaBudget = text }
-                    }
-                    Rectangle {
-                        width: 120; height: 26; radius: theme.rSharp; color: theme.accent
-                        Text { anchors.centerIn: parent; text: "COMPUTE DCA PLAN"; color: "#FFFFFF"; font.family: theme.fontMono; font.pixelSize: 9; font.bold: true }
-                        MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: plRoot.runCli(["dca", plRoot.dcaBudget], "Computed $" + plRoot.dcaBudget + " DCA plan") }
-                    }
-                }
-            }
-        }
-
-        // 3. Scenario Simulation & Future Portfolio Projections
-        Rectangle {
-            width: parent.width; height: 150; radius: theme.rSharp
-            color: theme.bgPanel; border.color: theme.borderSubtle; border.width: 1
+            width: parent.width; height: 158; radius: theme.rSharp
+            color: theme.bgPanel; border.color: theme.borderDefault; border.width: 1
             Column {
                 anchors.fill: parent; anchors.margins: 10; spacing: 8
-                Text { text: "SCENARIO SIMULATION & WEALTH PROJECTION"; color: theme.textMuted; font.family: theme.fontMono; font.pixelSize: 9; font.bold: true }
-                Row {
-                    spacing: 12
-                    Row {
-                        spacing: 4
-                        Text { text: "MONTHLY ($" + plRoot.monthlyContrib.toFixed(0) + ")"; color: theme.textSecondary; font.family: theme.fontMono; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter }
-                        Rectangle { width: 22; height: 22; radius: theme.rSharp; color: theme.bgElevated; Text { anchors.centerIn: parent; text: "-"; color: theme.textPrimary; font.family: theme.fontMono } MouseArea { anchors.fill: parent; onClicked: plRoot.monthlyContrib = Math.max(0, plRoot.monthlyContrib - 25) } }
-                        Rectangle { width: 22; height: 22; radius: theme.rSharp; color: theme.bgElevated; Text { anchors.centerIn: parent; text: "+"; color: theme.textPrimary; font.family: theme.fontMono } MouseArea { anchors.fill: parent; onClicked: plRoot.monthlyContrib += 25 } }
-                    }
-                    Row {
-                        spacing: 4
-                        Text { text: "CAGR (" + plRoot.annualCagrPct.toFixed(0) + "%)"; color: theme.textSecondary; font.family: theme.fontMono; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter }
-                        Rectangle { width: 22; height: 22; radius: theme.rSharp; color: theme.bgElevated; Text { anchors.centerIn: parent; text: "-"; color: theme.textPrimary; font.family: theme.fontMono } MouseArea { anchors.fill: parent; onClicked: plRoot.annualCagrPct = Math.max(2, plRoot.annualCagrPct - 2) } }
-                        Rectangle { width: 22; height: 22; radius: theme.rSharp; color: theme.bgElevated; Text { anchors.centerIn: parent; text: "+"; color: theme.textPrimary; font.family: theme.fontMono } MouseArea { anchors.fill: parent; onClicked: plRoot.annualCagrPct = Math.min(40, plRoot.annualCagrPct + 2) } }
-                    }
-                }
                 Row {
                     width: parent.width; spacing: 8
+                    Text { text: "CONTRIBUTION PLANNER & HYPOTHETICAL SCENARIOS (NOT GUARANTEED)"; color: theme.textPrimary; font.family: theme.fontMono; font.pixelSize: 10; font.bold: true }
+                }
+                Row {
+                    spacing: 6
+                    Text { text: "MONTHLY:"; color: theme.textMuted; font.family: theme.fontMono; font.pixelSize: 9; anchors.verticalCenter: parent.verticalCenter }
+                    Repeater {
+                        model: [5, 10, 25, 50, 100]
+                        delegate: Rectangle {
+                            width: 48; height: 24; radius: theme.rSharp
+                            color: plRoot.monthlyContrib === modelData ? theme.bgActive : theme.bgBlack
+                            border.color: plRoot.monthlyContrib === modelData ? theme.accent : theme.borderDefault; border.width: 1
+                            Text { anchors.centerIn: parent; text: "$" + modelData; color: plRoot.monthlyContrib === modelData ? theme.textPrimary : theme.textSecondary; font.family: theme.fontMono; font.pixelSize: 10; font.bold: true }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: plRoot.monthlyContrib = modelData }
+                        }
+                    }
+                    Text { text: "  YEARS:"; color: theme.textMuted; font.family: theme.fontMono; font.pixelSize: 9; anchors.verticalCenter: parent.verticalCenter }
                     Repeater {
                         model: [1, 3, 5, 10]
                         delegate: Rectangle {
-                            width: (parent.width - 24) / 4; height: 64; radius: theme.rSharp
+                            width: 36; height: 24; radius: theme.rSharp
+                            color: plRoot.horizonYears === modelData ? theme.bgActive : theme.bgBlack
+                            border.color: plRoot.horizonYears === modelData ? theme.info : theme.borderDefault; border.width: 1
+                            Text { anchors.centerIn: parent; text: modelData + "Y"; color: theme.textPrimary; font.family: theme.fontMono; font.pixelSize: 9 }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: plRoot.horizonYears = modelData }
+                        }
+                    }
+                }
+                // Bull / Base / Bear Cards
+                Row {
+                    width: parent.width; spacing: 8
+                    Repeater {
+                        model: [
+                            { t: "BEAR CASE (2% CAGR)", r: 2, c: theme.loss },
+                            { t: "BASE CASE (10% CAGR)", r: 10, c: theme.textPrimary },
+                            { t: "BULL CASE (18% CAGR)", r: 18, c: theme.gain }
+                        ]
+                        delegate: Rectangle {
+                            width: (parent.width - 16) / 3; height: 66; radius: theme.rSharp
                             color: theme.bgBlack; border.color: theme.borderSubtle; border.width: 1
                             Column {
                                 anchors.centerIn: parent; spacing: 3
-                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData + " YEAR" + (modelData > 1 ? "S" : ""); color: theme.textMuted; font.family: theme.fontMono; font.pixelSize: 9 }
-                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: theme.fmtMoney(plRoot.projectYears(modelData), "USD", 0); color: theme.gain; font.family: theme.fontMono; font.pixelSize: 15; font.bold: true }
+                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData.t; color: theme.textMuted; font.family: theme.fontMono; font.pixelSize: 9 }
+                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: theme.fmtMoney(plRoot.projVal(modelData.r), "USD", 0); color: modelData.c; font.family: theme.fontMono; font.pixelSize: 16; font.bold: true }
+                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: "HYPOTHETICAL · NET OF 1.04% FEE"; color: theme.textDim; font.family: theme.fontMono; font.pixelSize: 8 }
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        // 2. Non-Destructive What-If Simulator + Goal Selector
+        Row {
+            width: parent.width; spacing: 8
+            Rectangle {
+                width: (parent.width - 8) / 2; height: 112; radius: theme.rSharp
+                color: theme.bgPanel; border.color: theme.borderSubtle; border.width: 1
+                property var wf: (plRoot.plannerData && plRoot.plannerData.what_if_examples) ? plRoot.plannerData.what_if_examples : ({})
+                Column {
+                    anchors.fill: parent; anchors.margins: 10; spacing: 5
+                    Text { text: "WHAT-IF PORTFOLIO SIMULATOR (READ-ONLY)"; color: theme.textMuted; font.family: theme.fontMono; font.pixelSize: 9; font.bold: true }
+                    Text { text: "• Invest +$20: " + (parent.parent.wf.invest_20 ? theme.fmtMoney(parent.parent.wf.invest_20.after_total_usd, "USD", 2) : "--"); color: theme.gain; font.family: theme.fontMono; font.pixelSize: 10 }
+                    Text { text: "• Market -10% Shock: " + (parent.parent.wf.market_drop_10pct ? theme.fmtMoney(parent.parent.wf.market_drop_10pct.after_total_usd, "USD", 2) : "--"); color: theme.loss; font.family: theme.fontMono; font.pixelSize: 10 }
+                    Text { text: "• Market +20% Rally: " + (parent.parent.wf.market_rise_20pct ? theme.fmtMoney(parent.parent.wf.market_rise_20pct.after_total_usd, "USD", 2) : "--"); color: theme.gain; font.family: theme.fontMono; font.pixelSize: 10 }
+                }
+            }
+            Rectangle {
+                width: (parent.width - 8) / 2; height: 112; radius: theme.rSharp
+                color: theme.bgPanel; border.color: theme.borderSubtle; border.width: 1
+                Column {
+                    anchors.fill: parent; anchors.margins: 10; spacing: 6
+                    Text { text: "TARGET ALLOCATION & REBALANCING"; color: theme.textMuted; font.family: theme.fontMono; font.pixelSize: 9; font.bold: true }
+                    Row {
+                        spacing: 6
+                        Rectangle { width: 72; height: 26; radius: theme.rSharp; color: theme.bgBlack; border.color: theme.borderDefault; border.width: 1; TextInput { anchors.fill: parent; anchors.margins: 5; text: plRoot.targetSym; color: theme.textPrimary; font.family: theme.fontMono; font.pixelSize: 11; onTextChanged: plRoot.targetSym = text.toUpperCase() } }
+                        Rectangle { width: 52; height: 26; radius: theme.rSharp; color: theme.bgBlack; border.color: theme.borderDefault; border.width: 1; TextInput { anchors.fill: parent; anchors.margins: 5; text: plRoot.targetPct; color: theme.textPrimary; font.family: theme.fontMono; font.pixelSize: 11; onTextChanged: plRoot.targetPct = text } }
+                        Rectangle {
+                            width: 96; height: 26; radius: theme.rSharp; color: theme.bgElevated; border.color: theme.borderDefault; border.width: 1
+                            Text { anchors.centerIn: parent; text: "SET TARGET %"; color: theme.textPrimary; font.family: theme.fontMono; font.pixelSize: 9; font.bold: true }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { plRoot.runCli(["target", "set", plRoot.targetSym, plRoot.targetPct], "Set target " + plRoot.targetSym); plRoot.loadPlanner() } }
+                        }
+                    }
+                    Row {
+                        spacing: 6
+                        Repeater {
+                            model: ["hybrid", "long", "short"]
+                            delegate: Rectangle {
+                                width: 74; height: 24; radius: theme.rSharp
+                                color: String(summaryData.trading_goal || "hybrid") === modelData ? theme.bgActive : theme.bgBlack
+                                border.color: String(summaryData.trading_goal || "hybrid") === modelData ? theme.accent : theme.borderSubtle; border.width: 1
+                                Text { anchors.centerIn: parent; text: modelData.toUpperCase(); color: theme.textPrimary; font.family: theme.fontMono; font.pixelSize: 9 }
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: plRoot.runCli(["goal", modelData], "Set goal " + modelData) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Investment Calendar
+        Rectangle {
+            width: parent.width; height: Math.max(90, calCol.implicitHeight + 20); radius: theme.rSharp
+            color: theme.bgPanel; border.color: theme.borderSubtle; border.width: 1
+            Column {
+                id: calCol
+                anchors.fill: parent; anchors.margins: 10; spacing: 5
+                Text { text: "INVESTMENT CALENDAR (CONTRIBUTIONS, REVIEWS, DIVIDENDS & FILINGS)"; color: theme.textMuted; font.family: theme.fontMono; font.pixelSize: 9; font.bold: true }
+                Rectangle { width: parent.width; height: 1; color: theme.borderSubtle }
+                Repeater {
+                    model: (plRoot.plannerData && plRoot.plannerData.calendar) ? plRoot.plannerData.calendar.slice(0, 6) : []
+                    delegate: Row {
+                        width: parent.width; spacing: 10
+                        Text { width: 82; text: String(modelData.date || ""); color: theme.textMuted; font.family: theme.fontMono; font.pixelSize: 10 }
+                        Text { width: 96; text: String(modelData.type || ""); color: theme.info; font.family: theme.fontMono; font.pixelSize: 9; font.bold: true }
+                        Text { width: parent.width - 200; elide: Text.ElideRight; text: String(modelData.title || ""); color: theme.textPrimary; font.family: theme.fontSans; font.pixelSize: 10 }
                     }
                 }
             }

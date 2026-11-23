@@ -28,21 +28,22 @@ Rectangle {
     function filteredItems() {
         var q = String(query || "").trim().toLowerCase()
         var items = [
-            { kind: "SCREEN", key: "overview", label: "Overview", hint: "Key 1" },
-            { kind: "SCREEN", key: "portfolio", label: "Portfolio Holdings", hint: "Key 2" },
-            { kind: "SCREEN", key: "screener", label: "Market Screener (VFEX / ZSE / C-TRADE)", hint: "Key 3" },
-            { kind: "SCREEN", key: "stock", label: "Stock Detail & Research", hint: "Key 4" },
-            { kind: "SCREEN", key: "intelligence", label: "Investment Intelligence & Mahoraga AI", hint: "Key 5" },
-            { kind: "SCREEN", key: "newsroom", label: "Newsroom & Catalysts", hint: "Key 6" },
-            { kind: "SCREEN", key: "planner", label: "Investment Planner & DCA", hint: "Key 7" },
-            { kind: "SCREEN", key: "trading", label: "Trading Desk & Order Ticket", hint: "Key 8" },
-            { kind: "SCREEN", key: "ledger", label: "Ledger & Audit Trail", hint: "Key 9" },
+            { kind: "CMD", key: "overview", label: "/overview — Portfolio Overview", hint: "Key 1" },
+            { kind: "CMD", key: "portfolio", label: "/portfolio — Complete Holdings", hint: "Key 2" },
+            { kind: "CMD", key: "screener", label: "/markets /screener /vfex /zse /ctrade — Market Screener", hint: "Key 3" },
+            { kind: "CMD", key: "stock", label: "/research — Stock Detail & Research", hint: "Key 4" },
+            { kind: "CMD", key: "intelligence", label: "/intelligence — 8-Agent AI Desk & Mahoraga", hint: "Key 5" },
+            { kind: "CMD", key: "newsroom", label: "/news — Newsroom & Why This Matters", hint: "Key 6" },
+            { kind: "CMD", key: "planner", label: "/planner — Investment Planner & Scenarios", hint: "Key 7" },
+            { kind: "CMD", key: "trading", label: "/trading /alerts — Order Ticket & Price Alerts", hint: "Key 8" },
+            { kind: "CMD", key: "ledger", label: "/ledger — Audit Trail & Portal Sync", hint: "Key 9" },
+            { kind: "CMD", key: "overview", label: "/watchlist — Watchlist Tape", hint: "Dock" },
             { kind: "WORKSPACE", key: "portfolio_overview", label: "Workspace: Portfolio Overview", hint: "Layout" },
             { kind: "WORKSPACE", key: "market_watch", label: "Workspace: Market Watch", hint: "Layout" },
             { kind: "WORKSPACE", key: "research_desk", label: "Workspace: Research Desk", hint: "Layout" },
             { kind: "WORKSPACE", key: "trading_desk", label: "Workspace: Trading Desk", hint: "Layout" },
             { kind: "WORKSPACE", key: "intelligence_desk", label: "Workspace: Intelligence Desk", hint: "Layout" },
-            { kind: "ACTION", key: "refresh", label: "Fetch Live Market Data", hint: "Key R" },
+            { kind: "ACTION", key: "refresh", label: "/refresh — Fetch Live Market Data", hint: "Key R" },
             { kind: "ACTION", key: "agent_step", label: "Run Mahoraga Agent Step", hint: "AI" },
             { kind: "ACTION", key: "agent_train", label: "Train Mahoraga Brain", hint: "AI" },
             { kind: "ACTION", key: "sync_all", label: "Sync All Connected Portals", hint: "Sync" }
@@ -71,7 +72,7 @@ Rectangle {
 
     function executeItem(it) {
         if (!it) return
-        if (it.kind === "SCREEN") navigateScreen(it.key)
+        if (it.kind === "SCREEN" || it.kind === "CMD") navigateScreen(it.key)
         else if (it.kind === "WORKSPACE") selectWorkspace(it.key)
         else if (it.kind === "COUNTER") openStock(it.key)
         else if (it.kind === "ACTION") runAction(it.key)
