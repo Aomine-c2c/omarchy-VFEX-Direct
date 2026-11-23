@@ -23,3 +23,8 @@ fi
 echo "Installed vfex -> ${BIN_DIR}/vfex"
 echo "Symlinked plugin files & components -> ${PLUGIN_DIR}"
 echo "Make sure ${BIN_DIR} is in your PATH."
+
+if command -v omarchy-restart-shell >/dev/null 2>&1; then
+    echo "Reloading Omarchy shell..."
+    omarchy-restart-shell
+fi
