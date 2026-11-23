@@ -62,8 +62,8 @@ PanelWindow {
     WlrLayershell.namespace: "omarchy-vfex-notch"
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
 
-    implicitWidth: Math.max(notchPill.width, 396)
-    implicitHeight: Math.max(notchPill.height, 230)
+    implicitWidth: Math.max(notchPill.width, 416)
+    implicitHeight: Math.max(notchPill.height, 240)
     mask: Region { item: notchPill }
 
     // Pure-QML 5x7 LED Dot-Matrix Glyph Map for authentic Nothing OS / Ndot pixel rendering
@@ -131,8 +131,8 @@ PanelWindow {
             anchors.top: parent.top
 
             readonly property int compactW: Math.max(210, Math.min(340, notchWin.measureMatrixWidth(notchWin.displayText, 2.1) + 74))
-            width: notchWin.hovered ? 378 : compactW
-            height: notchWin.hovered ? (peekContentCol.implicitHeight + 20) : 30
+            width: notchWin.hovered ? 404 : compactW
+            height: notchWin.hovered ? (peekContentCol.implicitHeight + 24) : 30
             radius: notchWin.hovered ? 20 : 15
             color: "#000000"
             border.color: notchWin.alertsActive ? "#ff2a3c" : (notchWin.hovered ? "#3f3f46" : "#222226")
@@ -311,13 +311,13 @@ PanelWindow {
                     }
                     Canvas {
                         id: peekTitleCanvas
-                        width: parent.width - 110
+                        width: Math.max(120, parent.width - mktBadgeRect.width - 20)
                         height: 14
                         anchors.verticalCenter: parent.verticalCenter
                         onPaint: {
                             var ctx = getContext("2d")
                             ctx.clearRect(0, 0, width, height)
-                            var txt = "NOTHING // VFEX TERMINAL"
+                            var txt = "VFEX // NOTHING"
                             var step = 1.9
                             var r = 0.8
                             var curX = 0
@@ -340,6 +340,7 @@ PanelWindow {
                         }
                     }
                     Rectangle {
+                        id: mktBadgeRect
                         width: mktLedTxt.implicitWidth + 10; height: 16; radius: 8
                         color: notchWin.marketOpen ? "#220a0d" : "#18181b"
                         border.color: notchWin.marketOpen ? "#ff2a3c" : "#27272a"; border.width: 1
@@ -457,18 +458,30 @@ PanelWindow {
                                     }
                                     return
                                 }
-                                var slice = vals.slice(-cols)
-                                var mn = Number(slice[0]), mx = Number(slice[0])
-                                for (var i = 1; i < slice.length; i++) {
-                                    var v = Number(slice[i])
+                                var rawSlice = vals.slice(-Math.min(vals.length, cols))
+                                var sampled = []
+                                if (rawSlice.length >= cols) {
+                                    sampled = rawSlice.slice(-cols)
+                                } else {
+                                    for (var si = 0; si < cols; si++) {
+                                        var pos = (cols <= 1) ? 0 : (si / (cols - 1)) * (rawSlice.length - 1)
+                                        var lo = Math.floor(pos)
+                                        var hi = Math.min(rawSlice.length - 1, lo + 1)
+                                        var frac = pos - lo
+                                        sampled.push(Number(rawSlice[lo]) * (1 - frac) + Number(rawSlice[hi]) * frac)
+                                    }
+                                }
+                                var mn = Number(sampled[0]), mx = Number(sampled[0])
+                                for (var i = 1; i < sampled.length; i++) {
+                                    var v = Number(sampled[i])
                                     if (v < mn) mn = v
                                     if (v > mx) mx = v
                                 }
                                 var sp = mx - mn
-                                var isUp = Number(slice[slice.length - 1]) >= Number(slice[0])
+                                var isUp = Number(sampled[sampled.length - 1]) >= Number(sampled[0])
                                 var col = isUp ? "#4ade80" : "#ff2a3c"
-                                for (var c = 0; c < slice.length; c++) {
-                                    var norm = sp > 1e-9 ? (Number(slice[c]) - mn) / sp : 0.5
+                                for (var c = 0; c < sampled.length; c++) {
+                                    var norm = sp > 1e-9 ? (Number(sampled[c]) - mn) / sp : 0.5
                                     var lit = Math.min(rows - 1, Math.max(0, Math.round(norm * (rows - 1))))
                                     for (var ry = 0; ry < rows; ry++) {
                                         var fb = (rows - 1) - ry

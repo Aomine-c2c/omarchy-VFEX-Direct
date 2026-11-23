@@ -1710,6 +1710,51 @@ For and on behalf of MORGAN & CO
         self.assertIsNotNone(tiny_plan["usd_gap_for_one"])
         self.assertGreater(tiny_plan["usd_gap_for_one"], 0.0)
 
+    def test_atomic_state_save_backup_and_concurrent_load(self) -> None:
+        import concurrent.futures
+
+        # Save real holdings + watchlist cleanly
+        self.store.state["watchlist"] = ["INFR"]
+        self.store.state["portfolio"] = {
+            "INFR": {"lots": [{"shares": 38, "buy_price": 0.2235, "date": "2026-10-09", "broker": "vfex_direct"}]}
+        }
+        self.store.state["synced_accounts"] = {"vfex_direct": {"cash_usd": 0.39}}
+        self.store.save()
+
+        # Second save populates state.json.bak before atomic replace
+        self.store.state["synced_accounts"]["ctrade"] = {"cash_zwg": 1.44}
+        self.store.save()
+        self.assertTrue(self.store.backup_file.exists())
+
+        # Corrupt primary state.json -> _load must preserve corrupt copy and recover from .bak
+        self.store.state_file.write_text('{"watchlist": ["INSC"', encoding="utf-8")
+        recovered = VFEXStore(config_dir=self.store.config_dir)
+        self.assertEqual(recovered.state.get("watchlist"), ["INFR"])
+        self.assertIn("INFR", recovered.state.get("portfolio", {}))
+        corrupt_copies = list(self.store.config_dir.glob("state.json.corrupt.*"))
+        self.assertGreaterEqual(len(corrupt_copies), 1)
+
+        # Concurrent writers & readers never see partial JSON
+        recovered.save()
+
+        def writer_worker(idx: int) -> None:
+            s = VFEXStore(config_dir=self.store.config_dir)
+            s.state.setdefault("synced_accounts", {})["tick"] = idx
+            s.save()
+
+        def reader_worker() -> list[str]:
+            s = VFEXStore(config_dir=self.store.config_dir)
+            return list(s.state.get("watchlist", []))
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            futs = [pool.submit(writer_worker, i) for i in range(15)] + [
+                pool.submit(reader_worker) for _ in range(30)
+            ]
+            for f in futs:
+                res = f.result()
+                if res is not None:
+                    self.assertEqual(res, ["INFR"])
+
 
 if __name__ == "__main__":
     unittest.main()

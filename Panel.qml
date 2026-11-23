@@ -43,6 +43,30 @@ Panel {
     property int calMonth: (new Date()).getMonth()
     property bool wideLayout: true
     property bool fullPageMode: true
+    property bool nothingTheme: true
+    readonly property color thBgCanvas: nothingTheme ? "#000000" : "#11111b"
+    readonly property color thBgCard: nothingTheme ? "#0a0a0c" : "#181825"
+    readonly property color thBgSubtle: nothingTheme ? "#111115" : "#11111b"
+    readonly property color thBgElevated: nothingTheme ? "#17171c" : "#313244"
+    readonly property color thBgActiveTab: nothingTheme ? "#16161b" : "#242436"
+    readonly property color thBorder: nothingTheme ? "#27272a" : "#313244"
+    readonly property color thBorderStrong: nothingTheme ? "#3f3f46" : "#45475a"
+    readonly property color thTextPrimary: nothingTheme ? "#f4f4f6" : "#cdd6f4"
+    readonly property color thTextMuted: nothingTheme ? "#a1a1aa" : "#a6adc8"
+    readonly property color thTextDim: nothingTheme ? "#71717a" : "#6c7086"
+    readonly property color thAccent: nothingTheme ? "#ff2a3c" : "#89b4fa"
+    readonly property color thOnAccent: nothingTheme ? "#ffffff" : "#1e1e2e"
+    readonly property color thSecondary: nothingTheme ? "#f4f4f6" : "#cba6f7"
+    readonly property color thOnSecondary: "#1e1e2e"
+    readonly property color thGain: nothingTheme ? "#4ade80" : "#a6e3a1"
+    readonly property color thLoss: nothingTheme ? "#ff2a3c" : "#f38ba8"
+    readonly property color thWarn: nothingTheme ? "#fbbf24" : "#f9e2af"
+    readonly property color thInfo: nothingTheme ? "#e4e4e7" : "#89dceb"
+    readonly property color thGainBg: nothingTheme ? "#0c2216" : "#1f3a27"
+    readonly property color thLossBg: nothingTheme ? "#260b10" : "#3d2229"
+    readonly property color thWarnBg: nothingTheme ? "#241d0c" : "#2b261d"
+    readonly property color thAccentBg: nothingTheme ? "#260b10" : "#1e2e4a"
+    readonly property int fullBodyHeight: fullPageMode ? Math.max(760, Math.round((panel.availableCardHeight > 0 ? panel.availableCardHeight : 980) - Style.space(205))) : 0
     property bool accountDrawerOpen: false
     property string activeTab: "overview"
     property string signalFilter: "all"
@@ -374,15 +398,15 @@ Panel {
     }
 
     function newsSentimentColor(sent) {
-        if (sent === "Bullish") return "#a6e3a1"
-        if (sent === "Caution") return "#f38ba8"
-        return "#89b4fa"
+        if (sent === "Bullish") return root.thGain
+        if (sent === "Caution") return root.thLoss
+        return root.thAccent
     }
 
     function newsSentimentBg(sent) {
-        if (sent === "Bullish") return "#1f3a27"
-        if (sent === "Caution") return "#3d2229"
-        return "#1e2e4a"
+        if (sent === "Bullish") return root.thGainBg
+        if (sent === "Caution") return root.thLossBg
+        return root.thAccentBg
     }
 
     function filteredNews() {
@@ -408,15 +432,15 @@ Panel {
     }
 
     function heatmapTileColor(chg) {
-        if (chg === null || chg === undefined) return "#1e1e2e"
+        if (chg === null || chg === undefined) return root.thBgSubtle
         var c = Number(chg)
         if (c >= 4.0) return "#1e462a"
-        if (c >= 1.5) return "#1f3a27"
+        if (c >= 1.5) return root.thGainBg
         if (c > 0.05) return "#1b2e24"
         if (c <= -4.0) return "#4a1f28"
         if (c <= -1.5) return "#3d1f26"
-        if (c < -0.05) return "#2d1d24"
-        return "#1e1e2e"
+        if (c < -0.05) return root.thLossBg
+        return root.thBgSubtle
     }
 
     function isOwnedSymbol(sym) {
@@ -706,6 +730,28 @@ Panel {
                 root.switchPanel(direction)
             }
 
+            Rectangle {
+                anchors.fill: parent
+                color: root.thBgCanvas
+                Canvas {
+                    anchors.fill: parent
+                    visible: root.nothingTheme
+                    onWidthChanged: requestPaint()
+                    onHeightChanged: requestPaint()
+                    onPaint: {
+                        var ctx = getContext("2d")
+                        ctx.clearRect(0, 0, width, height)
+                        ctx.fillStyle = "#18181d"
+                        var step = 16
+                        for (var y = 8; y < height; y += step) {
+                            for (var x = 8; x < width; x += step) {
+                                ctx.fillRect(x, y, 1.5, 1.5)
+                            }
+                        }
+                    }
+                }
+            }
+
             Flickable {
                 id: mainFlick
                 anchors.fill: parent
@@ -721,11 +767,12 @@ Panel {
 
                 // === WORKSTATION HEADER & LIVE MARKET TELEMETRY RIBBON ===
                 Rectangle {
+                    id: hdrCard
                     width: parent.width
                     height: hdrInnerCol.implicitHeight + Style.space(12)
                     radius: 8
-                    color: "#181825"
-                    border.color: "#313244"
+                    color: root.thBgCard
+                    border.color: root.thBorder
                     border.width: 1
 
                     Column {
@@ -741,27 +788,27 @@ Panel {
                                 id: brandMark
                                 width: Style.space(22)
                                 height: Style.space(22)
-                                radius: 5
-                                color: "#243b2c"
-                                border.color: "#a6e3a1"
+                                radius: root.nothingTheme ? Style.space(11) : 5
+                                color: root.nothingTheme ? root.thLossBg : root.thGainBg
+                                border.color: root.nothingTheme ? root.thAccent : root.thGain
                                 border.width: 1
                                 anchors.verticalCenter: parent.verticalCenter
                                 Text {
                                     anchors.centerIn: parent
-                                    text: "◈"
-                                    color: "#a6e3a1"
+                                    text: root.nothingTheme ? "●" : "◈"
+                                    color: root.nothingTheme ? root.thAccent : root.thGain
                                     font.pixelSize: Style.font.body
                                     font.bold: true
                                 }
                             }
 
                             Column {
-                                width: Math.max(Style.space(180), parent.width - brandMark.width - mktBadge.width - acctToggleBtn.width - refreshBtn.width - pageSizeToggleBtn.width - closePanelBtn.width - Style.space(44))
+                                width: Math.max(Style.space(180), parent.width - brandMark.width - mktBadge.width - acctToggleBtn.width - refreshBtn.width - themeToggleBtn.width - pageSizeToggleBtn.width - closePanelBtn.width - Style.space(52))
                                 anchors.verticalCenter: parent.verticalCenter
                                 spacing: 0
                                 Text {
-                                    text: "VFEX & ZSE Trading Terminal"
-                                    color: "#cdd6f4"
+                                    text: root.nothingTheme ? "NOTHING // VFEX & ZSE TERMINAL" : "VFEX & ZSE Trading Terminal"
+                                    color: root.thTextPrimary
                                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                     font.pixelSize: Style.font.subtitle
                                     font.bold: true
@@ -779,7 +826,7 @@ Panel {
                                         }
                                         return "Synced " + upd + xStr + cs
                                     }
-                                    color: "#6c7086"
+                                    color: root.thTextDim
                                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                     font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                     elide: Text.ElideRight
@@ -793,8 +840,8 @@ Panel {
                                 width: mktBadgeTxt.implicitWidth + Style.space(10)
                                 height: mktBadgeTxt.implicitHeight + Style.space(5)
                                 radius: 4
-                                color: (root.summaryData.market_status === "Open") ? "#1f3a27" : "#1e1e2e"
-                                border.color: (root.summaryData.market_status === "Open") ? "#a6e3a1" : "#45475a"
+                                color: (root.summaryData.market_status === "Open") ? root.thGainBg : root.thBgSubtle
+                                border.color: (root.summaryData.market_status === "Open") ? root.thGain : root.thBorderStrong
                                 border.width: 1
                                 Text {
                                     id: mktBadgeTxt
@@ -804,7 +851,7 @@ Panel {
                                         var cd = root.summaryData.market_countdown || ""
                                         return (st === "Open" ? "● Market Open" : "○ Market Closed") + (cd ? (" • " + root.fmtCountdown(cd)) : "")
                                     }
-                                    color: (root.summaryData.market_status === "Open") ? "#a6e3a1" : "#a6adc8"
+                                    color: (root.summaryData.market_status === "Open") ? root.thGain : root.thTextMuted
                                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                     font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                     font.bold: true
@@ -817,14 +864,14 @@ Panel {
                                 width: acctToggleTxt.implicitWidth + Style.space(10)
                                 height: Style.space(22)
                                 radius: 4
-                                color: root.activeTab === "ledger" ? "#89b4fa" : "#313244"
-                                border.color: root.connectedPortalsCount() > 0 ? "#a6e3a1" : "#45475a"
+                                color: root.activeTab === "ledger" ? root.thAccent : root.thBgElevated
+                                border.color: root.connectedPortalsCount() > 0 ? root.thGain : root.thBorderStrong
                                 border.width: 1
                                 Text {
                                     id: acctToggleTxt
                                     anchors.centerIn: parent
                                     text: root.connectedPortalsCount() > 0 ? ("⚙ " + root.connectedPortalsCount() + "/3 Portals Linked") : "⚙ Broker Portals"
-                                    color: root.activeTab === "ledger" ? "#1e1e2e" : (root.connectedPortalsCount() > 0 ? "#a6e3a1" : "#cdd6f4")
+                                    color: root.activeTab === "ledger" ? root.thOnAccent : (root.connectedPortalsCount() > 0 ? root.thGain : root.thTextPrimary)
                                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                     font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
                                     font.bold: true
@@ -846,14 +893,14 @@ Panel {
                                 width: refTxt.implicitWidth + Style.space(10)
                                 height: Style.space(22)
                                 radius: 4
-                                color: "#313244"
-                                border.color: busy ? "#45475a" : "#89b4fa"
+                                color: root.thBgElevated
+                                border.color: busy ? root.thBorderStrong : root.thAccent
                                 border.width: 1
                                 Text {
                                     id: refTxt
                                     anchors.centerIn: parent
                                     text: parent.busy ? "↻ Refreshing..." : "↻ Refresh Market"
-                                    color: parent.busy ? "#a6adc8" : "#89b4fa"
+                                    color: parent.busy ? root.thTextMuted : root.thAccent
                                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                     font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
                                     font.bold: true
@@ -870,19 +917,47 @@ Panel {
                             }
 
                             Rectangle {
+                                id: themeToggleBtn
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: thmTxt.implicitWidth + Style.space(10)
+                                height: Style.space(22)
+                                radius: 4
+                                color: root.thBgElevated
+                                border.color: root.nothingTheme ? root.thAccent : root.thBorderStrong
+                                border.width: 1
+                                Text {
+                                    id: thmTxt
+                                    anchors.centerIn: parent
+                                    text: root.nothingTheme ? "◐ Nothing UI" : "◐ Classic UI"
+                                    color: root.nothingTheme ? root.thTextPrimary : root.thTextMuted
+                                    font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                    font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
+                                    font.bold: true
+                                }
+                                MouseArea {
+                                    anchors.fill: parent
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: {
+                                        root.nothingTheme = !root.nothingTheme
+                                        Qt.callLater(root.repaintCanvases)
+                                    }
+                                }
+                            }
+
+                            Rectangle {
                                 id: pageSizeToggleBtn
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: pstTxt.implicitWidth + Style.space(10)
                                 height: Style.space(22)
                                 radius: 4
-                                color: "#313244"
-                                border.color: "#45475a"
+                                color: root.thBgElevated
+                                border.color: root.thBorderStrong
                                 border.width: 1
                                 Text {
                                     id: pstTxt
                                     anchors.centerIn: parent
                                     text: root.fullPageMode ? "⊟ Compact Popup" : "⊞ Full Screen"
-                                    color: "#cdd6f4"
+                                    color: root.thTextPrimary
                                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                     font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
                                     font.bold: true
@@ -903,14 +978,14 @@ Panel {
                                 width: cpTxt.implicitWidth + Style.space(10)
                                 height: Style.space(22)
                                 radius: 4
-                                color: "#2d1d24"
-                                border.color: "#f38ba8"
+                                color: root.thLossBg
+                                border.color: root.thLoss
                                 border.width: 1
                                 Text {
                                     id: cpTxt
                                     anchors.centerIn: parent
                                     text: "× Close"
-                                    color: "#f38ba8"
+                                    color: root.thLoss
                                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                     font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
                                     font.bold: true
@@ -936,14 +1011,14 @@ Panel {
                                 height: Style.space(20)
                                 radius: 4
                                 property string gKey: root.effectiveTradingGoal()
-                                color: gKey === "long" ? "#1f3a27" : (gKey === "short" ? "#272138" : "#1e2e4a")
-                                border.color: gKey === "long" ? "#a6e3a1" : (gKey === "short" ? "#cba6f7" : "#89b4fa")
+                                color: gKey === "long" ? root.thGainBg : (gKey === "short" ? root.thAccentBg : root.thAccentBg)
+                                border.color: gKey === "long" ? root.thGain : (gKey === "short" ? root.thSecondary : root.thAccent)
                                 border.width: 1
                                 Text {
                                     id: goalPillTxt
                                     anchors.centerIn: parent
                                     text: root.tradingGoalLabel(parent.gKey)
-                                    color: parent.gKey === "long" ? "#a6e3a1" : (parent.gKey === "short" ? "#cba6f7" : "#89b4fa")
+                                    color: parent.gKey === "long" ? root.thGain : (parent.gKey === "short" ? root.thSecondary : root.thAccent)
                                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                     font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                     font.bold: true
@@ -984,14 +1059,14 @@ Panel {
                                         width: pDotLbl.implicitWidth + 10
                                         height: Style.space(20)
                                         radius: 4
-                                        color: Boolean(pInfo.connected) ? "#1f3a27" : (Boolean(pInfo.mfa_pending) ? "#2b261d" : "#1e1e2e")
-                                        border.color: Boolean(pInfo.connected) ? "#a6e3a1" : (Boolean(pInfo.mfa_pending) ? "#f9e2af" : "#45475a")
+                                        color: Boolean(pInfo.connected) ? root.thGainBg : (Boolean(pInfo.mfa_pending) ? root.thWarnBg : root.thBgSubtle)
+                                        border.color: Boolean(pInfo.connected) ? root.thGain : (Boolean(pInfo.mfa_pending) ? root.thWarn : root.thBorderStrong)
                                         border.width: 1
                                         Text {
                                             id: pDotLbl
                                             anchors.centerIn: parent
                                             text: (Boolean(parent.pInfo.connected) ? "● " : "○ ") + modelData.label
-                                            color: Boolean(parent.pInfo.connected) ? "#a6e3a1" : (Boolean(parent.pInfo.mfa_pending) ? "#f9e2af" : "#6c7086")
+                                            color: Boolean(parent.pInfo.connected) ? root.thGain : (Boolean(parent.pInfo.mfa_pending) ? root.thWarn : root.thTextDim)
                                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                             font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                             font.bold: true
@@ -1022,7 +1097,7 @@ Panel {
                                 width: Style.space(260)
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: "Breadth: " + (parent.br.advancers || 0) + " Up • " + (parent.br.unchanged || 0) + " Flat • " + (parent.br.decliners || 0) + " Down"
-                                color: "#a6adc8"
+                                color: root.thTextMuted
                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                 font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                 elide: Text.ElideRight
@@ -1033,9 +1108,9 @@ Panel {
                                 height: 6
                                 spacing: 2
                                 anchors.verticalCenter: parent.verticalCenter
-                                Rectangle { width: Math.max(2, (Number(parent.parent.br.advancers || 0) / parent.parent.totBr) * (parent.width - 4)); height: 6; radius: 3; color: "#a6e3a1" }
-                                Rectangle { width: Math.max(2, (Number(parent.parent.br.unchanged || 0) / parent.parent.totBr) * (parent.width - 4)); height: 6; radius: 3; color: "#45475a" }
-                                Rectangle { width: Math.max(2, (Number(parent.parent.br.decliners || 0) / parent.parent.totBr) * (parent.width - 4)); height: 6; radius: 3; color: "#f38ba8" }
+                                Rectangle { width: Math.max(2, (Number(parent.parent.br.advancers || 0) / parent.parent.totBr) * (parent.width - 4)); height: 6; radius: 3; color: root.thGain }
+                                Rectangle { width: Math.max(2, (Number(parent.parent.br.unchanged || 0) / parent.parent.totBr) * (parent.width - 4)); height: 6; radius: 3; color: root.thBorderStrong }
+                                Rectangle { width: Math.max(2, (Number(parent.parent.br.decliners || 0) / parent.parent.totBr) * (parent.width - 4)); height: 6; radius: 3; color: root.thLoss }
                             }
 
                             Text {
@@ -1046,7 +1121,7 @@ Panel {
                                     var bt = root.summaryData.signal_backtest || ({})
                                     return "90-Day Win Rate " + Number(bt.win_rate_pct || 0).toFixed(0) + "% (" + (bt.total_logged || 0) + " signals)"
                                 }
-                                color: Number((root.summaryData.signal_backtest || ({})).avg_return_pct || 0) >= 0 ? "#a6e3a1" : "#f38ba8"
+                                color: Number((root.summaryData.signal_backtest || ({})).avg_return_pct || 0) >= 0 ? root.thGain : root.thLoss
                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                 font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                 font.bold: true
@@ -1069,7 +1144,7 @@ Panel {
                                     var fnTxt = fn === 0 ? "Foreign Net $0" : ("Foreign Net " + (fn > 0 ? "+" : "-") + "$" + root.fmtInt(Math.abs(fn)))
                                     return "VFEX Index " + Number(parent.vx.index_value || 0).toFixed(2) + " (" + (ch >= 0 ? "+" : "") + ch.toFixed(2) + "%) • Turnover $" + root.fmtInt(parent.vx.turnover || 0) + " (" + (parent.vx.num_trades || 0) + " trades) • " + fnTxt
                                 }
-                                color: Number(parent.vx.foreign_net || 0) < 0 ? "#f9e2af" : "#89dceb"
+                                color: Number(parent.vx.foreign_net || 0) < 0 ? root.thWarn : root.thInfo
                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                 font.pixelSize: 9
                                 elide: Text.ElideRight
@@ -1080,7 +1155,7 @@ Panel {
                                 horizontalAlignment: Text.AlignRight
                                 visible: Boolean(parent.zs.turnover)
                                 text: "ZSE Turnover ZiG " + (Number(parent.zs.turnover || 0) / 1000000).toFixed(2) + " Million (" + (parent.zs.num_trades || 0) + " trades)"
-                                color: "#a6adc8"
+                                color: root.thTextMuted
                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                 font.pixelSize: 9
                                 elide: Text.ElideLeft
@@ -1096,7 +1171,7 @@ Panel {
                                 model: ((root.summaryData.market_intel || ({})).indices || []).slice(0, 4)
                                 delegate: Text {
                                     text: modelData.name + ": " + Number(modelData.level || 0).toFixed(2) + (Number(modelData.one_month || 0) > 0 ? (" (1-Month " + Number(modelData.one_month).toFixed(2) + ")") : "")
-                                    color: Number(modelData.change || 0) >= 0 ? "#89dceb" : "#f38ba8"
+                                    color: Number(modelData.change || 0) >= 0 ? root.thInfo : root.thLoss
                                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                     font.pixelSize: 9
                                 }
@@ -1105,7 +1180,7 @@ Panel {
                                 property real vmcap: Number((((root.summaryData.market_intel || ({})).vfex || ({})).total_market_cap) || 0)
                                 visible: vmcap > 0
                                 text: "VFEX Market Capitalisation: $" + (vmcap / 1000000000).toFixed(2) + " Billion"
-                                color: "#a6e3a1"
+                                color: root.thGain
                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                 font.pixelSize: 9
                                 font.bold: true
@@ -1118,7 +1193,7 @@ Panel {
                     width: parent.width
                     visible: (root.summaryData.fetch_error || "").length > 0
                     text: root.summaryData.fetch_error || ""
-                    color: "#f38ba8"
+                    color: root.thLoss
                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                     font.pixelSize: Style.font.small || Style.font.body
                     wrapMode: Text.WordWrap
@@ -1132,18 +1207,18 @@ Panel {
                     columnSpacing: Style.space(5)
                     Repeater {
                         model: [
-                            { key: "overview", icon: "▤", label: "Overview", badge: (root.summaryData.signals || []).length, badgeCol: "#a6e3a1" },
-                            { key: "screener", icon: "⊞", label: "Market Screener", badge: (root.summaryData.screener || []).length, badgeCol: "#89b4fa" },
-                            { key: "analytics", icon: "◔", label: "Analysis & 5-Year", badge: ((root.summaryData.signal_backtest || ({})).total_logged || 0), badgeCol: "#cba6f7" },
-                            { key: "ledger", icon: "☰", label: root.wideLayout ? "Ledger & Portals" : "Ledger", badge: (root.summaryData.trades || []).length + (root.summaryData.triggered_alerts || []).length, badgeCol: (root.summaryData.triggered_alerts || []).length > 0 ? "#f9e2af" : "#89dceb" },
-                            { key: "agent", icon: "🤖", label: root.wideLayout ? "Auto-Trader" : "Agent", badge: (((root.summaryData.paper_agent || ({})).positions || []).length), badgeCol: Number(((root.summaryData.paper_agent || ({})).net_pnl_usd || 0)) >= 0 ? "#a6e3a1" : "#f38ba8" }
+                            { key: "overview", icon: "▤", label: "Overview", badge: (root.summaryData.signals || []).length, badgeCol: root.thGain },
+                            { key: "screener", icon: "⊞", label: "Market Screener", badge: (root.summaryData.screener || []).length, badgeCol: root.thAccent },
+                            { key: "analytics", icon: "◔", label: "Analysis & 5-Year", badge: ((root.summaryData.signal_backtest || ({})).total_logged || 0), badgeCol: root.thSecondary },
+                            { key: "ledger", icon: "☰", label: root.wideLayout ? "Ledger & Portals" : "Ledger", badge: (root.summaryData.trades || []).length + (root.summaryData.triggered_alerts || []).length, badgeCol: (root.summaryData.triggered_alerts || []).length > 0 ? root.thWarn : root.thInfo },
+                            { key: "agent", icon: "🤖", label: root.wideLayout ? "Auto-Trader" : "Agent", badge: (((root.summaryData.paper_agent || ({})).positions || []).length), badgeCol: Number(((root.summaryData.paper_agent || ({})).net_pnl_usd || 0)) >= 0 ? root.thGain : root.thLoss }
                         ]
                         delegate: Rectangle {
                             width: (topTabBar.width - Style.space(5) * 4) / 5
                             height: Style.space(28)
                             radius: 6
-                            color: root.activeTab === modelData.key ? "#242436" : "#181825"
-                            border.color: root.activeTab === modelData.key ? "#89b4fa" : "#313244"
+                            color: root.activeTab === modelData.key ? root.thBgActiveTab : root.thBgCard
+                            border.color: root.activeTab === modelData.key ? root.thAccent : root.thBgElevated
                             border.width: 1
 
                             Rectangle {
@@ -1151,7 +1226,7 @@ Panel {
                                 anchors { left: parent.left; right: parent.right; bottom: parent.bottom; leftMargin: 8; rightMargin: 8 }
                                 height: 2
                                 radius: 1
-                                color: "#89b4fa"
+                                color: root.thAccent
                             }
 
                             Row {
@@ -1160,13 +1235,13 @@ Panel {
                                 Text {
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: modelData.icon
-                                    color: root.activeTab === modelData.key ? "#89b4fa" : "#6c7086"
+                                    color: root.activeTab === modelData.key ? root.thAccent : root.thTextDim
                                     font.pixelSize: Style.font.body
                                 }
                                 Text {
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: modelData.label
-                                    color: root.activeTab === modelData.key ? "#cdd6f4" : "#a6adc8"
+                                    color: root.activeTab === modelData.key ? root.thTextPrimary : root.thTextMuted
                                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                     font.pixelSize: Style.font.small || Style.font.body
                                     font.bold: root.activeTab === modelData.key
@@ -1177,7 +1252,7 @@ Panel {
                                     width: bNumTxt.implicitWidth + 8
                                     height: bNumTxt.implicitHeight + 2
                                     radius: 4
-                                    color: "#313244"
+                                    color: root.thBgElevated
                                     Text {
                                         id: bNumTxt
                                         anchors.centerIn: parent
@@ -1219,8 +1294,8 @@ Panel {
                     visible: (root.summaryData.items || []).length > 0 || Number(root.summaryData.wallet_cash_usd || 0) > 0 || Number(root.summaryData.wallet_cash_zwg || 0) > 0
                     height: portfolioCol.implicitHeight + Style.space(16)
                     radius: 8
-                    color: "#181825"
-                    border.color: "#313244"
+                    color: root.thBgCard
+                    border.color: root.thBorder
                     border.width: 1
 
                     Column {
@@ -1256,14 +1331,14 @@ Panel {
                                         var rad = Math.min(cx, cy) - 7
                                         ctx.beginPath()
                                         ctx.arc(cx, cy, rad, 0, Math.PI * 2)
-                                        ctx.strokeStyle = "#313244"
+                                        ctx.strokeStyle = root.thBorder
                                         ctx.lineWidth = 10
                                         ctx.stroke()
                                         if (arr.length === 0) return
                                         var tot = 0
                                         for (var i = 0; i < arr.length; i++) tot += Math.max(0, Number(arr[i].value || 0))
                                         if (tot <= 0) return
-                                        var palette = ["#89b4fa", "#a6e3a1", "#f9e2af", "#cba6f7", "#fab387", "#94e2d5"]
+                                        var palette = [String(root.thAccent), String(root.thGain), String(root.thWarn), String(root.thSecondary), "#fab387", String(root.thGain)]
                                         var ang = -Math.PI / 2
                                         for (var j = 0; j < arr.length; j++) {
                                             var v = Math.max(0, Number(arr[j].value || 0))
@@ -1284,7 +1359,7 @@ Panel {
                                     Text {
                                         anchors.horizontalCenter: parent.horizontalCenter
                                         text: String((root.summaryData.items || []).length) + ((root.summaryData.items || []).length === 1 ? " holding" : " holdings")
-                                        color: "#cdd6f4"
+                                        color: root.thTextPrimary
                                         font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                         font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
                                         font.bold: true
@@ -1292,7 +1367,7 @@ Panel {
                                     Text {
                                         anchors.horizontalCenter: parent.horizontalCenter
                                         text: "$" + Number(root.summaryData.total_value || 0).toFixed(0)
-                                        color: "#6c7086"
+                                        color: root.thTextDim
                                         font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                         font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                     }
@@ -1310,7 +1385,7 @@ Panel {
                                         width: parent.width - pnlBadge.width
                                         anchors.verticalCenter: parent.verticalCenter
                                         text: "$" + Number(root.summaryData.total_value || 0).toFixed(2)
-                                        color: "#cdd6f4"
+                                        color: root.thTextPrimary
                                         font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                         font.pixelSize: (Style.font.subtitle || 16) + 3
                                         font.bold: true
@@ -1321,8 +1396,8 @@ Panel {
                                         width: pnlBadgeText.implicitWidth + Style.space(10)
                                         height: pnlBadgeText.implicitHeight + Style.space(5)
                                         radius: 6
-                                        color: Number(root.summaryData.total_pnl || 0) >= 0 ? "#243b2c" : "#3d2229"
-                                        border.color: Number(root.summaryData.total_pnl || 0) >= 0 ? "#a6e3a1" : "#f38ba8"
+                                        color: Number(root.summaryData.total_pnl || 0) >= 0 ? root.thGainBg : root.thLossBg
+                                        border.color: Number(root.summaryData.total_pnl || 0) >= 0 ? root.thGain : root.thLoss
                                         border.width: 1
                                         Text {
                                             id: pnlBadgeText
@@ -1333,7 +1408,7 @@ Panel {
                                                 var sign = pnl >= 0 ? "+" : ""
                                                 return sign + "$" + pnl.toFixed(2) + " (" + sign + pct + "%)"
                                             }
-                                            color: Number(root.summaryData.total_pnl || 0) >= 0 ? "#a6e3a1" : "#f38ba8"
+                                            color: Number(root.summaryData.total_pnl || 0) >= 0 ? root.thGain : root.thLoss
                                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                             font.pixelSize: Style.font.small || Style.font.body
                                             font.bold: true
@@ -1350,7 +1425,7 @@ Panel {
                                     Text {
                                         width: (parent.width - Style.space(6)) / 2
                                         text: "Cost: $" + Number(root.summaryData.total_cost || 0).toFixed(2)
-                                        color: "#a6adc8"
+                                        color: root.thTextMuted
                                         font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                         font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
                                     }
@@ -1360,7 +1435,7 @@ Panel {
                                             var x = root.summaryData.portfolio_xirr_pct
                                             return "Annual Return: " + (x !== null && x !== undefined ? ((Number(x) >= 0 ? "+" : "") + Number(x).toFixed(1) + "%") : "--")
                                         }
-                                        color: Number(root.summaryData.portfolio_xirr_pct || 0) >= 0 ? "#a6e3a1" : "#f38ba8"
+                                        color: Number(root.summaryData.portfolio_xirr_pct || 0) >= 0 ? root.thGain : root.thLoss
                                         font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                         font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
                                     }
@@ -1368,7 +1443,7 @@ Panel {
                                         width: (parent.width - Style.space(6)) / 2
                                         visible: Number(root.summaryData.total_dividends || 0) > 0 || Number(root.summaryData.realized_pnl || 0) !== 0
                                         text: "Dividends: $" + Number(root.summaryData.total_dividends || 0).toFixed(2) + " • Realized: " + (Number(root.summaryData.realized_pnl || 0) >= 0 ? "+" : "") + "$" + Number(root.summaryData.realized_pnl || 0).toFixed(2)
-                                        color: "#89dceb"
+                                        color: root.thInfo
                                         font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                         font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                         elide: Text.ElideRight
@@ -1384,7 +1459,7 @@ Panel {
                                             if (z > 0) out.push("ZiG " + z.toFixed(2))
                                             return "Cash: " + out.join(" ")
                                         }
-                                        color: "#94e2d5"
+                                        color: root.thGain
                                         font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                         font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                         elide: Text.ElideRight
@@ -1397,7 +1472,7 @@ Panel {
                                     delegate: Row {
                                         width: parent.width
                                         spacing: Style.space(4)
-                                        property var palette: ["#89b4fa", "#a6e3a1", "#f9e2af", "#cba6f7"]
+                                        property var palette: [String(root.thAccent), String(root.thGain), String(root.thWarn), String(root.thSecondary)]
                                         property real wPct: Number(modelData.alloc_pct || 0)
                                         property real capPct: Number((root.summaryData.fee_config || ({})).max_stock_pct || 25)
                                         Text {
@@ -1417,16 +1492,16 @@ Panel {
                                                 width: parent.width
                                                 height: 5
                                                 radius: 2
-                                                color: "#313244"
+                                                color: root.thBgElevated
                                                 Rectangle {
                                                     width: Math.min(parent.width, Math.max(2, Math.min(1, parent.parent.parent.wPct / 100.0) * parent.width))
                                                     height: parent.height
                                                     radius: 2
-                                                    color: parent.parent.parent.wPct > parent.parent.parent.capPct ? "#f9e2af" : parent.parent.parent.palette[index % parent.parent.parent.palette.length]
+                                                    color: parent.parent.parent.wPct > parent.parent.parent.capPct ? root.thWarn : parent.parent.parent.palette[index % parent.parent.parent.palette.length]
                                                 }
                                                 Rectangle {
                                                     x: Math.min(parent.width - 2, (parent.parent.parent.capPct / 100.0) * parent.width)
-                                                    y: -2; width: 1.5; height: 9; color: "#f38ba8"
+                                                    y: -2; width: 1.5; height: 9; color: root.thLoss
                                                 }
                                             }
                                         }
@@ -1434,7 +1509,7 @@ Panel {
                                             width: Style.space(38)
                                             horizontalAlignment: Text.AlignRight
                                             text: parent.wPct.toFixed(0) + "%"
-                                            color: parent.wPct > parent.capPct ? "#f9e2af" : "#a6adc8"
+                                            color: parent.wPct > parent.capPct ? root.thWarn : root.thTextMuted
                                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                             font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                         }
@@ -1454,7 +1529,7 @@ Panel {
                                 var fLbl = fcfg.vfex_statutory ? "statutory fees (Morgan & Co)" : (Number(fcfg.vfex_fee_pct || 0).toFixed(1) + "%/side fees")
                                 return "Net after " + fLbl + ": " + sign + "$" + np.toFixed(2) + " (" + sign + npct.toFixed(1) + "%)"
                             }
-                            color: Number(root.summaryData.net_total_pnl || 0) >= 0 ? "#94e2d5" : "#f38ba8"
+                            color: Number(root.summaryData.net_total_pnl || 0) >= 0 ? root.thGain : root.thLoss
                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                             font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
                         }
@@ -1470,7 +1545,7 @@ Panel {
                                 Text {
                                     width: parent.width * 0.45
                                     text: "VALUE VERSUS COST"
-                                    color: "#6c7086"
+                                    color: root.thTextDim
                                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                     font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                     font.bold: true
@@ -1485,7 +1560,7 @@ Panel {
                                         var p = pts[idx]
                                         return p.date + " • $" + Number(p.value).toFixed(2) + " versus $" + Number(p.cost).toFixed(2)
                                     }
-                                    color: "#cdd6f4"
+                                    color: root.thTextPrimary
                                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                     font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                 }
@@ -1494,7 +1569,7 @@ Panel {
                             Canvas {
                                 id: equityCanvas
                                 width: parent.width
-                                height: root.fullPageMode ? Style.space(128) : Style.space(86)
+                                height: root.fullPageMode ? Math.max(Style.space(220), Math.round(root.fullBodyHeight * 0.27)) : Style.space(86)
                                 onWidthChanged: requestPaint()
                                 Component.onCompleted: {
                                     root.equityCanvasRef = equityCanvas
@@ -1527,18 +1602,18 @@ Panel {
                                     for (var g = 0; g < lvls.length; g++) {
                                         var gy = yAt(lvls[g])
                                         ctx.save()
-                                        ctx.strokeStyle = "#242436"
+                                        ctx.strokeStyle = String(root.thBgActiveTab)
                                         ctx.lineWidth = 1
                                         ctx.beginPath()
                                         ctx.moveTo(pL, gy); ctx.lineTo(width - pR, gy); ctx.stroke()
                                         ctx.restore()
-                                        ctx.fillStyle = "#6c7086"
+                                        ctx.fillStyle = String(root.thTextDim)
                                         ctx.fillText("$" + lvls[g].toFixed(1), 0, gy)
                                     }
 
                                     // Cost basis dashed line
                                     ctx.save()
-                                    ctx.strokeStyle = "#6c7086"
+                                    ctx.strokeStyle = String(root.thTextDim)
                                     ctx.lineWidth = 1.2
                                     ctx.setLineDash([3, 3])
                                     ctx.beginPath()
@@ -1551,7 +1626,7 @@ Panel {
 
                                     // Value curve + gradient fill
                                     var up = Number(pts[pts.length - 1].value) >= Number(pts[pts.length - 1].cost)
-                                    var col = up ? "#a6e3a1" : "#f38ba8"
+                                    var col = up ? root.thGain : root.thLoss
                                     var grad = ctx.createLinearGradient(0, pT, 0, pT + pH)
                                     grad.addColorStop(0, up ? "rgba(166, 227, 161, 0.30)" : "rgba(243, 139, 168, 0.30)")
                                     grad.addColorStop(1, "rgba(0, 0, 0, 0.0)")
@@ -1577,7 +1652,7 @@ Panel {
                                         var hx = xAt(root.hoveredEquityIdx)
                                         var hy = yAt(Number(pts[root.hoveredEquityIdx].value))
                                         ctx.save()
-                                        ctx.strokeStyle = "#89b4fa"
+                                        ctx.strokeStyle = String(root.thAccent)
                                         ctx.lineWidth = 1
                                         ctx.setLineDash([2, 2])
                                         ctx.beginPath()
@@ -1612,13 +1687,13 @@ Panel {
                                 var zpct = Number(root.summaryData.zwg_pnl_pct || 0)
                                 return "ZSE (ZWG): ZiG " + zv.toFixed(2) + " • Cost ZiG " + zc.toFixed(2) + " (" + root.fmtSignedMoney(zp, "ZWG") + " / " + (zpct >= 0 ? "+" : "") + zpct.toFixed(1) + "%)"
                             }
-                            color: Number(root.summaryData.zwg_pnl || 0) >= 0 ? "#f9e2af" : "#f38ba8"
+                            color: Number(root.summaryData.zwg_pnl || 0) >= 0 ? root.thWarn : root.thLoss
                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                             font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
                             wrapMode: Text.WordWrap
                         }
 
-                        Rectangle { width: parent.width; height: 1; color: "#313244" }
+                        Rectangle { width: parent.width; height: 1; color: root.thBorder }
 
                         Repeater {
                             model: root.summaryData.items || []
@@ -1631,8 +1706,8 @@ Panel {
                                     width: parent.width
                                     height: holdingRow.implicitHeight + Style.space(8)
                                     radius: 6
-                                    color: holdingHover.containsMouse ? "#242436" : "#11111b"
-                                    border.color: root.chartSymbol === modelData.symbol ? "#89b4fa" : "#242436"
+                                    color: holdingHover.containsMouse ? root.thBgActiveTab : root.thBgSubtle
+                                    border.color: root.chartSymbol === modelData.symbol ? root.thAccent : root.thBgActiveTab
                                     border.width: 1
 
                                     MouseArea {
@@ -1655,7 +1730,7 @@ Panel {
                                             id: holdSymTxt
                                             width: parent.width * 0.14
                                             text: modelData.symbol
-                                            color: modelData.currency === "ZWG" ? "#f9e2af" : "#cdd6f4"
+                                            color: modelData.currency === "ZWG" ? root.thWarn : root.thTextPrimary
                                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                             font.pixelSize: Style.font.small || Style.font.body
                                             font.bold: true
@@ -1669,14 +1744,14 @@ Panel {
                                             width: holdTagTxt.implicitWidth + 8
                                             height: holdTagTxt.implicitHeight + 2
                                             radius: 3
-                                            color: modelData.strategy_tag === "core" ? "#1f3a27" : "#272138"
-                                            border.color: modelData.strategy_tag === "core" ? "#a6e3a1" : "#cba6f7"
+                                            color: modelData.strategy_tag === "core" ? root.thGainBg : root.thAccentBg
+                                            border.color: modelData.strategy_tag === "core" ? root.thGain : root.thSecondary
                                             border.width: modelData.strategy_pinned ? 1 : 0
                                             Text {
                                                 id: holdTagTxt
                                                 anchors.centerIn: parent
                                                 text: modelData.strategy_tag === "core" ? "CORE" : "SWING"
-                                                color: modelData.strategy_tag === "core" ? "#a6e3a1" : "#cba6f7"
+                                                color: modelData.strategy_tag === "core" ? root.thGain : root.thSecondary
                                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                                 font.pixelSize: 8
                                                 font.bold: true
@@ -1697,7 +1772,7 @@ Panel {
                                             id: holdShTxt
                                             width: Math.min(parent.width * 0.24, Math.max(Style.space(58), implicitWidth + 4))
                                             text: Number(modelData.shares) + " shares"
-                                            color: "#a6adc8"
+                                            color: root.thTextMuted
                                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                             font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
                                             elide: Text.ElideRight
@@ -1707,7 +1782,7 @@ Panel {
                                             id: holdPrcTxt
                                             width: Math.max(Style.space(56), implicitWidth + 4)
                                             text: "@ " + root.fmtPrice(modelData.price, modelData.currency)
-                                            color: "#cdd6f4"
+                                            color: root.thTextPrimary
                                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                             font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
                                             anchors.verticalCenter: parent.verticalCenter
@@ -1720,7 +1795,7 @@ Panel {
                                                 var sign = pct >= 0 ? "+" : ""
                                                 return root.fmtSignedMoney(modelData.pnl, modelData.currency) + " (" + sign + pct.toFixed(1) + "%)"
                                             }
-                                            color: modelData.pnl >= 0 ? "#a6e3a1" : "#f38ba8"
+                                            color: modelData.pnl >= 0 ? root.thGain : root.thLoss
                                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                             font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
                                             font.bold: true
@@ -1747,7 +1822,7 @@ Panel {
                                         id: beStopLbl
                                         width: Math.max(Style.space(116), implicitWidth + 2)
                                         text: modelData.stop_price ? ("Stop " + Number(modelData.stop_price).toFixed(3)) : ("Break-Even " + Number(modelData.breakeven_price || modelData.avg_cost || 0).toFixed(3))
-                                        color: modelData.stop_price ? "#f9e2af" : "#6c7086"
+                                        color: modelData.stop_price ? root.thWarn : root.thTextDim
                                         font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                         font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                     }
@@ -1760,7 +1835,7 @@ Panel {
                                             width: parent.width
                                             height: 4
                                             radius: 2
-                                            color: "#313244"
+                                            color: root.thBgElevated
                                             // Green zone from Cost to Price (or Red below Cost)
                                             Rectangle {
                                                 property real xCost: Math.max(0, Math.min(1, (parent.parent.parent.costP - parent.parent.parent.loP) / parent.parent.parent.pSpan)) * parent.width
@@ -1769,24 +1844,24 @@ Panel {
                                                 width: Math.max(2, Math.abs(xCur - xCost))
                                                 height: parent.height
                                                 radius: 2
-                                                color: parent.parent.parent.curP >= parent.parent.parent.costP ? "#a6e3a1" : "#f38ba8"
+                                                color: parent.parent.parent.curP >= parent.parent.parent.costP ? root.thGain : root.thLoss
                                             }
                                             // Stop Floor vertical tick
                                             Rectangle {
                                                 x: Math.max(0, Math.min(parent.width - 2, ((parent.parent.parent.stopP - parent.parent.parent.loP) / parent.parent.parent.pSpan) * parent.width))
-                                                y: -2; width: 2; height: 8; color: "#f9e2af"
+                                                y: -2; width: 2; height: 8; color: root.thWarn
                                             }
                                             // Cost Basis vertical tick
                                             Rectangle {
                                                 x: Math.max(0, Math.min(parent.width - 2, ((parent.parent.parent.costP - parent.parent.parent.loP) / parent.parent.parent.pSpan) * parent.width))
-                                                y: -2; width: 2; height: 8; color: "#cdd6f4"
+                                                y: -2; width: 2; height: 8; color: root.thTextPrimary
                                             }
                                             // Current price glowing dot
                                             Rectangle {
                                                 x: Math.max(0, Math.min(parent.width - 8, ((parent.parent.parent.curP - parent.parent.parent.loP) / parent.parent.parent.pSpan) * parent.width - 4))
                                                 y: -2; width: 8; height: 8; radius: 4
-                                                color: parent.parent.parent.curP >= parent.parent.parent.costP ? "#a6e3a1" : "#f38ba8"
-                                                border.color: "#11111b"; border.width: 1
+                                                color: parent.parent.parent.curP >= parent.parent.parent.costP ? root.thGain : root.thLoss
+                                                border.color: root.thBgSubtle; border.width: 1
                                             }
                                         }
                                     }
@@ -1796,7 +1871,7 @@ Panel {
                                         width: Math.max(Style.space(102), implicitWidth + 2)
                                         horizontalAlignment: Text.AlignRight
                                         text: "Target Price " + Number(parent.tgtP).toFixed(3)
-                                        color: "#89dceb"
+                                        color: root.thInfo
                                         font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                         font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                     }
@@ -1811,14 +1886,14 @@ Panel {
                                         width: parent.width - allocPctLabel.width - Style.space(8)
                                         height: 6
                                         radius: 3
-                                        color: "#313244"
+                                        color: root.thBgElevated
                                         anchors.verticalCenter: parent.verticalCenter
 
                                         Rectangle {
                                             width: Math.max(0, Math.min(1, Number(modelData.alloc_pct || 0) / 100.0)) * parent.width
                                             height: parent.height
                                             radius: 3
-                                            color: Number(modelData.alloc_pct || 0) >= Number(modelData.target_pct || 0) ? "#a6e3a1" : "#89b4fa"
+                                            color: Number(modelData.alloc_pct || 0) >= Number(modelData.target_pct || 0) ? root.thGain : root.thAccent
                                         }
 
                                         Rectangle {
@@ -1827,14 +1902,14 @@ Panel {
                                             width: 2
                                             height: parent.height + 4
                                             radius: 1
-                                            color: "#f9e2af"
+                                            color: root.thWarn
                                         }
                                     }
 
                                     Text {
                                         id: allocPctLabel
                                         text: Number(modelData.alloc_pct || 0).toFixed(0) + "% / " + Number(modelData.target_pct || 0).toFixed(0) + "%"
-                                        color: "#a6adc8"
+                                        color: root.thTextMuted
                                         font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                         font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
                                     }
@@ -1859,7 +1934,7 @@ Panel {
                                                 }
                                                 return base
                                             }
-                                            color: (modelData.lots || []).length > 0 ? "#89b4fa" : "#a6adc8"
+                                            color: (modelData.lots || []).length > 0 ? root.thAccent : root.thTextMuted
                                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                             font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                             MouseArea {
@@ -1879,14 +1954,14 @@ Panel {
                                                 width: qbBuyTxt.implicitWidth + Style.space(6)
                                                 height: qbBuyTxt.implicitHeight + 2
                                                 radius: 3
-                                                color: "#243b2c"
-                                                border.color: "#45475a"
+                                                color: root.thGainBg
+                                                border.color: root.thBorderStrong
                                                 border.width: 1
                                                 Text {
                                                     id: qbBuyTxt
                                                     anchors.centerIn: parent
                                                     text: "Buy More"
-                                                    color: "#a6e3a1"
+                                                    color: root.thGain
                                                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                                     font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                                     font.bold: true
@@ -1902,14 +1977,14 @@ Panel {
                                                 width: qbSellTxt.implicitWidth + Style.space(6)
                                                 height: qbSellTxt.implicitHeight + 2
                                                 radius: 3
-                                                color: "#3d2229"
-                                                border.color: "#45475a"
+                                                color: root.thLossBg
+                                                border.color: root.thBorderStrong
                                                 border.width: 1
                                                 Text {
                                                     id: qbSellTxt
                                                     anchors.centerIn: parent
                                                     text: "Sell"
-                                                    color: "#f38ba8"
+                                                    color: root.thLoss
                                                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                                     font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                                     font.bold: true
@@ -1925,14 +2000,14 @@ Panel {
                                                 width: qbStopTxt.implicitWidth + Style.space(6)
                                                 height: qbStopTxt.implicitHeight + 2
                                                 radius: 3
-                                                color: modelData.stop_pct ? "#2b261d" : "#313244"
-                                                border.color: modelData.stop_pct ? "#f9e2af" : "#45475a"
+                                                color: modelData.stop_pct ? root.thWarnBg : root.thBgElevated
+                                                border.color: modelData.stop_pct ? root.thWarn : root.thBorderStrong
                                                 border.width: 1
                                                 Text {
                                                     id: qbStopTxt
                                                     anchors.centerIn: parent
                                                     text: modelData.stop_pct ? ("Stop -" + Number(modelData.stop_pct).toFixed(0) + "%") : "Trailing Stop"
-                                                    color: modelData.stop_pct ? "#f9e2af" : "#cdd6f4"
+                                                    color: modelData.stop_pct ? root.thWarn : root.thTextPrimary
                                                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                                     font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                                     font.bold: true
@@ -1960,7 +2035,7 @@ Panel {
                                     Text {
                                         width: portfolioCol.width * 0.56
                                         text: "Stop " + root.fmtPrice(modelData.stop_price || 0, modelData.currency) + " (Peak " + root.fmtPrice(modelData.peak_price || 0, modelData.currency) + ")"
-                                        color: "#f9e2af"
+                                        color: root.thWarn
                                         font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                         font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                         elide: Text.ElideRight
@@ -1969,13 +2044,13 @@ Panel {
                                         width: portfolioCol.width * 0.40
                                         height: 4
                                         radius: 2
-                                        color: "#313244"
+                                        color: root.thBgElevated
                                         anchors.verticalCenter: parent.verticalCenter
                                         Rectangle {
                                             width: Math.max(0, Math.min(1, Number(modelData.stop_distance_pct || 0) / Math.max(1, Number(modelData.stop_pct || 10)))) * parent.width
                                             height: parent.height
                                             radius: 2
-                                            color: Number(modelData.stop_distance_pct || 0) <= 2 ? "#f38ba8" : "#a6e3a1"
+                                            color: Number(modelData.stop_distance_pct || 0) <= 2 ? root.thLoss : root.thGain
                                         }
                                     }
                                 }
@@ -1988,7 +2063,7 @@ Panel {
                                         delegate: Text {
                                             width: portfolioCol.width
                                             text: "  " + modelData.date + ": " + Number(modelData.shares) + " shares @ $" + Number(modelData.price).toFixed(4)
-                                            color: "#a6adc8"
+                                            color: root.thTextMuted
                                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                             font.pixelSize: Style.font.small || Style.font.body
                                         }
@@ -2003,8 +2078,8 @@ Panel {
                             visible: root.stopEditOpen
                             height: stopEditRow.implicitHeight + Style.space(10)
                             radius: 6
-                            color: "#11111b"
-                            border.color: "#f9e2af"
+                            color: root.thBgSubtle
+                            border.color: root.thWarn
                             border.width: 1
                             Row {
                                 id: stopEditRow
@@ -2012,32 +2087,32 @@ Panel {
                                 spacing: Style.space(5)
                                 Text {
                                     text: "Trailing Stop:"
-                                    color: "#f9e2af"; font.pixelSize: Style.font.small ? Style.font.small - 1 : 10; font.bold: true
+                                    color: root.thWarn; font.pixelSize: Style.font.small ? Style.font.small - 1 : 10; font.bold: true
                                     anchors.verticalCenter: parent.verticalCenter
                                 }
                                 Rectangle {
-                                    width: parent.width * 0.24; height: Style.space(24); radius: 4; color: "#313244"; border.color: "#45475a"; border.width: 1
+                                    width: parent.width * 0.24; height: Style.space(24); radius: 4; color: root.thBgElevated; border.color: root.thBorderStrong; border.width: 1
                                     TextInput {
-                                        id: stopSymIn; anchors.fill: parent; anchors.margins: 4; color: "#cdd6f4"
+                                        id: stopSymIn; anchors.fill: parent; anchors.margins: 4; color: root.thTextPrimary
                                         font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.small || Style.font.body
                                         text: root.stopEditSym; onTextChanged: if (root.stopEditSym !== text) root.stopEditSym = text
                                         Connections { target: root; function onStopEditSymChanged() { if (stopSymIn.text !== root.stopEditSym) stopSymIn.text = root.stopEditSym } }
-                                        Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Symbol"; color: "#6c7086"; font: stopSymIn.font; visible: !stopSymIn.text && !stopSymIn.activeFocus }
+                                        Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Symbol"; color: root.thTextDim; font: stopSymIn.font; visible: !stopSymIn.text && !stopSymIn.activeFocus }
                                     }
                                 }
                                 Rectangle {
-                                    width: parent.width * 0.22; height: Style.space(24); radius: 4; color: "#313244"; border.color: "#45475a"; border.width: 1
+                                    width: parent.width * 0.22; height: Style.space(24); radius: 4; color: root.thBgElevated; border.color: root.thBorderStrong; border.width: 1
                                     TextInput {
-                                        id: stopPctIn; anchors.fill: parent; anchors.margins: 4; color: "#cdd6f4"
+                                        id: stopPctIn; anchors.fill: parent; anchors.margins: 4; color: root.thTextPrimary
                                         font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.small || Style.font.body
                                         text: root.stopEditPct; onTextChanged: if (root.stopEditPct !== text) root.stopEditPct = text
                                         Connections { target: root; function onStopEditPctChanged() { if (stopPctIn.text !== root.stopEditPct) stopPctIn.text = root.stopEditPct } }
-                                        Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Trail %"; color: "#6c7086"; font: stopPctIn.font; visible: !stopPctIn.text && !stopPctIn.activeFocus }
+                                        Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Trail %"; color: root.thTextDim; font: stopPctIn.font; visible: !stopPctIn.text && !stopPctIn.activeFocus }
                                     }
                                 }
                                 Rectangle {
-                                    width: stpSvTxt.implicitWidth + 14; height: Style.space(24); radius: 4; color: "#f9e2af"
-                                    Text { id: stpSvTxt; anchors.centerIn: parent; text: "Set Stop"; color: "#1e1e2e"; font.pixelSize: 10; font.bold: true }
+                                    width: stpSvTxt.implicitWidth + 14; height: Style.space(24); radius: 4; color: root.thWarn
+                                    Text { id: stpSvTxt; anchors.centerIn: parent; text: "Set Stop"; color: root.thOnSecondary; font.pixelSize: 10; font.bold: true }
                                     MouseArea {
                                         anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running
                                         onClicked: {
@@ -2051,7 +2126,7 @@ Panel {
                                     }
                                 }
                                 Text {
-                                    text: "×"; color: "#f38ba8"; font.pixelSize: Style.font.body; font.bold: true; anchors.verticalCenter: parent.verticalCenter
+                                    text: "×"; color: root.thLoss; font.pixelSize: Style.font.body; font.bold: true; anchors.verticalCenter: parent.verticalCenter
                                     MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.stopEditOpen = false }
                                 }
                             }
@@ -2064,8 +2139,8 @@ Panel {
                     visible: (root.summaryData.triggered_alerts || []).length > 0
                     height: triggeredAlertsCol.implicitHeight + Style.space(16)
                     radius: 8
-                    color: "#2b261d"
-                    border.color: "#f9e2af"
+                    color: root.thWarnBg
+                    border.color: root.thWarn
                     border.width: 1
 
                     Column {
@@ -2078,7 +2153,7 @@ Panel {
                             Text {
                                 width: parent.width - clearAlertsBtn.width
                                 text: "⚠ Triggered Alerts"
-                                color: "#f9e2af"
+                                color: root.thWarn
                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                 font.pixelSize: Style.font.body
                                 font.bold: true
@@ -2086,7 +2161,7 @@ Panel {
                             Text {
                                 id: clearAlertsBtn
                                 text: "Clear"
-                                color: "#89b4fa"
+                                color: root.thAccent
                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                 font.pixelSize: Style.font.small || Style.font.body
                                 font.bold: true
@@ -2110,7 +2185,7 @@ Panel {
                                 Text {
                                     width: triggeredAlertsCol.width * 0.90
                                     text: (modelData.direction === "above" ? "▲ " : "▼ ") + modelData.text
-                                    color: "#f9e2af"
+                                    color: root.thWarn
                                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                     font.pixelSize: Style.font.small || Style.font.body
                                     wrapMode: Text.WordWrap
@@ -2119,7 +2194,7 @@ Panel {
                                     width: triggeredAlertsCol.width * 0.10
                                     horizontalAlignment: Text.AlignRight
                                     text: "×"
-                                    color: "#f38ba8"
+                                    color: root.thLoss
                                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                     font.pixelSize: Style.font.body
                                     font.bold: true
@@ -2144,8 +2219,8 @@ Panel {
                     visible: true
                     height: activeAlertsCol.implicitHeight + Style.space(16)
                     radius: 8
-                    color: "#181825"
-                    border.color: "#313244"
+                    color: root.thBgCard
+                    border.color: root.thBorder
                     border.width: 1
 
                     Column {
@@ -2160,7 +2235,7 @@ Panel {
                                 width: parent.width - addAlertTog.width - Style.space(6)
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: "Price Alerts (" + (root.summaryData.active_alerts || []).length + ")"
-                                color: "#cdd6f4"
+                                color: root.thTextPrimary
                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                 font.pixelSize: Style.font.body
                                 font.bold: true
@@ -2169,12 +2244,12 @@ Panel {
                                 id: addAlertTog
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: addAlLbl.implicitWidth + 12; height: Style.space(20); radius: 4
-                                color: root.alertAddOpen ? "#f9e2af" : "#2b261d"
-                                border.color: "#f9e2af"; border.width: 1
+                                color: root.alertAddOpen ? root.thWarn : root.thWarnBg
+                                border.color: root.thWarn; border.width: 1
                                 Text {
                                     id: addAlLbl; anchors.centerIn: parent
                                     text: root.alertAddOpen ? "Close" : "+ Add Price Alert"
-                                    color: root.alertAddOpen ? "#1e1e2e" : "#f9e2af"
+                                    color: root.alertAddOpen ? root.thOnSecondary : root.thWarn
                                     font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true
                                 }
                                 MouseArea {
@@ -2192,7 +2267,7 @@ Panel {
                             width: activeAlertsCol.width
                             visible: root.alertAddOpen
                             height: alFormCol.implicitHeight + Style.space(10)
-                            radius: 6; color: "#11111b"; border.color: "#f9e2af"; border.width: 1
+                            radius: 6; color: root.thBgSubtle; border.color: root.thWarn; border.width: 1
                             Column {
                                 id: alFormCol
                                 anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: Style.space(6) }
@@ -2200,33 +2275,33 @@ Panel {
                                 Row {
                                     width: parent.width; spacing: Style.space(4)
                                     Rectangle {
-                                        width: parent.width * 0.25; height: Style.space(24); radius: 4; color: "#313244"; border.color: "#45475a"; border.width: 1
+                                        width: parent.width * 0.25; height: Style.space(24); radius: 4; color: root.thBgElevated; border.color: root.thBorderStrong; border.width: 1
                                         TextInput {
-                                            id: alSymIn; anchors.fill: parent; anchors.margins: 4; color: "#cdd6f4"
+                                            id: alSymIn; anchors.fill: parent; anchors.margins: 4; color: root.thTextPrimary
                                             font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.small || Style.font.body
                                             text: root.alertAddSym; onTextChanged: if (root.alertAddSym !== text) root.alertAddSym = text
                                             Connections { target: root; function onAlertAddSymChanged() { if (alSymIn.text !== root.alertAddSym) alSymIn.text = root.alertAddSym } }
-                                            Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Symbol"; color: "#6c7086"; font: alSymIn.font; visible: !alSymIn.text && !alSymIn.activeFocus }
+                                            Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Symbol"; color: root.thTextDim; font: alSymIn.font; visible: !alSymIn.text && !alSymIn.activeFocus }
                                         }
                                     }
                                     Rectangle {
-                                        width: parent.width * 0.23; height: Style.space(24); radius: 4; color: "#313244"; border.color: "#45475a"; border.width: 1
-                                        Text { anchors.centerIn: parent; text: root.alertAddDir === "above" ? "Above" : "Below"; color: "#89b4fa"; font.pixelSize: Style.font.small || Style.font.body; font.bold: true }
+                                        width: parent.width * 0.23; height: Style.space(24); radius: 4; color: root.thBgElevated; border.color: root.thBorderStrong; border.width: 1
+                                        Text { anchors.centerIn: parent; text: root.alertAddDir === "above" ? "Above" : "Below"; color: root.thAccent; font.pixelSize: Style.font.small || Style.font.body; font.bold: true }
                                         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.alertAddDir = root.alertAddDir === "above" ? "below" : "above" }
                                     }
                                     Rectangle {
-                                        width: parent.width * 0.28; height: Style.space(24); radius: 4; color: "#313244"; border.color: "#45475a"; border.width: 1
+                                        width: parent.width * 0.28; height: Style.space(24); radius: 4; color: root.thBgElevated; border.color: root.thBorderStrong; border.width: 1
                                         TextInput {
-                                            id: alPrcIn; anchors.fill: parent; anchors.margins: 4; color: "#cdd6f4"
+                                            id: alPrcIn; anchors.fill: parent; anchors.margins: 4; color: root.thTextPrimary
                                             font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.small || Style.font.body
                                             text: root.alertAddPrice; onTextChanged: if (root.alertAddPrice !== text) root.alertAddPrice = text
                                             Connections { target: root; function onAlertAddPriceChanged() { if (alPrcIn.text !== root.alertAddPrice) alPrcIn.text = root.alertAddPrice } }
-                                            Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Price $"; color: "#6c7086"; font: alPrcIn.font; visible: !alPrcIn.text && !alPrcIn.activeFocus }
+                                            Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Price $"; color: root.thTextDim; font: alPrcIn.font; visible: !alPrcIn.text && !alPrcIn.activeFocus }
                                         }
                                     }
                                     Rectangle {
-                                        width: parent.width * 0.24 - Style.space(12); height: Style.space(24); radius: 4; color: "#f9e2af"
-                                        Text { anchors.centerIn: parent; text: "Set Alert"; color: "#1e1e2e"; font.pixelSize: 10; font.bold: true }
+                                        width: parent.width * 0.24 - Style.space(12); height: Style.space(24); radius: 4; color: root.thWarn
+                                        Text { anchors.centerIn: parent; text: "Set Alert"; color: root.thOnSecondary; font.pixelSize: 10; font.bold: true }
                                         MouseArea {
                                             anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running
                                             onClicked: {
@@ -2247,7 +2322,7 @@ Panel {
                         Text {
                             visible: (root.summaryData.active_alerts || []).length === 0 && !root.alertAddOpen
                             text: "No active price alerts configured."
-                            color: "#6c7086"
+                            color: root.thTextDim
                             font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
                         }
 
@@ -2258,7 +2333,7 @@ Panel {
                                 Text {
                                     width: activeAlertsCol.width * 0.90
                                     text: (modelData.direction === "above" ? "▲ " : "▼ ") + modelData.text
-                                    color: "#a6adc8"
+                                    color: root.thTextMuted
                                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                     font.pixelSize: Style.font.small || Style.font.body
                                     wrapMode: Text.WordWrap
@@ -2267,7 +2342,7 @@ Panel {
                                     width: activeAlertsCol.width * 0.10
                                     horizontalAlignment: Text.AlignRight
                                     text: "×"
-                                    color: "#f38ba8"
+                                    color: root.thLoss
                                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                     font.pixelSize: Style.font.body
                                     font.bold: true
@@ -2296,7 +2371,7 @@ Panel {
                     width: parent.width
                     visible: root.fullPageMode && ((icpOv.accounts || []).length > 0 || depU > 0 || depZ > 0)
                     height: ovIdleCol.implicitHeight + Style.space(14)
-                    radius: 8; color: "#181825"; border.color: (depU > 0 || depZ > 0) ? "#a6e3a1" : "#313244"; border.width: 1
+                    radius: 8; color: root.thBgCard; border.color: (depU > 0 || depZ > 0) ? root.thGain : root.thBgElevated; border.width: 1
                     Column {
                         id: ovIdleCol
                         anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(8) }
@@ -2306,13 +2381,13 @@ Panel {
                             Text {
                                 width: parent.width * 0.60
                                 text: "Unused Portal Balances & Quick Buys"
-                                color: "#a6e3a1"; font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                                color: root.thGain; font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                 font.pixelSize: Style.font.body; font.bold: true; elide: Text.ElideRight
                             }
                             Text {
                                 width: parent.width * 0.40; horizontalAlignment: Text.AlignRight
                                 text: "$" + ovIdleCard.depU.toFixed(2) + " USD • ZiG " + ovIdleCard.depZ.toFixed(2)
-                                color: "#89dceb"; font.pixelSize: 9; font.bold: true; elide: Text.ElideLeft
+                                color: root.thInfo; font.pixelSize: 9; font.bold: true; elide: Text.ElideLeft
                             }
                         }
                         Flow {
@@ -2320,19 +2395,19 @@ Panel {
                             Repeater {
                                 model: ovIdleCard.icpOv.accounts || []
                                 delegate: Rectangle {
-                                    width: ovAcTxt.implicitWidth + 10; height: Style.space(18); radius: 4; color: "#11111b"; border.color: "#313244"; border.width: 1
+                                    width: ovAcTxt.implicitWidth + 10; height: Style.space(18); radius: 4; color: root.thBgSubtle; border.color: root.thBorder; border.width: 1
                                     Text {
                                         id: ovAcTxt; anchors.centerIn: parent
                                         text: modelData.title + ": $" + Number(modelData.deployable_usd || 0).toFixed(2) + " USD • ZiG " + Number(modelData.deployable_zwg || 0).toFixed(2)
-                                        color: "#cdd6f4"; font.pixelSize: 8; font.bold: true
+                                        color: root.thTextPrimary; font.pixelSize: 8; font.bold: true
                                     }
                                 }
                             }
                         }
                         Repeater {
-                            model: (ovIdleCard.icpOv.usd_picks || []).slice(0, 2).concat((ovIdleCard.icpOv.zwg_picks || []).slice(0, 2))
+                            model: (ovIdleCard.icpOv.usd_picks || []).slice(0, root.fullPageMode ? 3 : 2).concat((ovIdleCard.icpOv.zwg_picks || []).slice(0, root.fullPageMode ? 3 : 2))
                             delegate: Rectangle {
-                                width: ovIdleCol.width; height: ovPkRow.implicitHeight + 6; radius: 4; color: "#11111b"
+                                width: ovIdleCol.width; height: ovPkRow.implicitHeight + 6; radius: 4; color: root.thBgSubtle
                                 MouseArea {
                                     anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                                     onClicked: {
@@ -2346,19 +2421,79 @@ Panel {
                                 Row {
                                     id: ovPkRow
                                     anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: 5 }
-                                    Text { width: parent.width * 0.20; text: modelData.symbol; color: "#a6e3a1"; font.pixelSize: 9; font.bold: true }
-                                    Text { width: parent.width * 0.44; text: "Buy " + modelData.max_shares + " shares @ " + root.fmtPrice(modelData.exec_price, modelData.currency); color: "#cdd6f4"; font.pixelSize: 9; elide: Text.ElideRight }
-                                    Text { width: parent.width * 0.36; horizontalAlignment: Text.AlignRight; text: root.fmtShortMoney(modelData.net_cost, modelData.currency) + " • Score " + modelData.score; color: "#cba6f7"; font.pixelSize: 9; font.bold: true }
+                                    Text { width: parent.width * 0.20; text: modelData.symbol; color: root.thGain; font.pixelSize: 9; font.bold: true }
+                                    Text { width: parent.width * 0.44; text: "Buy " + modelData.max_shares + " shares @ " + root.fmtPrice(modelData.exec_price, modelData.currency); color: root.thTextPrimary; font.pixelSize: 9; elide: Text.ElideRight }
+                                    Text { width: parent.width * 0.36; horizontalAlignment: Text.AlignRight; text: root.fmtShortMoney(modelData.net_cost, modelData.currency) + " • Score " + modelData.score; color: root.thSecondary; font.pixelSize: 9; font.bold: true }
                                 }
                             }
                         }
                         Row {
                             width: parent.width
-                            Text { width: parent.width * 0.65; text: "Click any pick above to pre-fill the Buy ticket →"; color: "#6c7086"; font.pixelSize: 8 }
+                            Text { width: parent.width * 0.65; text: "Click any pick above to pre-fill the Buy ticket →"; color: root.thTextDim; font.pixelSize: 8 }
                             Text {
                                 width: parent.width * 0.35; horizontalAlignment: Text.AlignRight
-                                text: "Full Planner →"; color: "#89b4fa"; font.pixelSize: 9; font.bold: true
+                                text: "Full Planner →"; color: root.thAccent; font.pixelSize: 9; font.bold: true
                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.activeTab = "analytics" }
+                            }
+                        }
+                    }
+                }
+
+                // Full Screen Overview Left Footer: Executed Trades & Dividends Blotter
+                Rectangle {
+                    id: ovTradesBlotter
+                    width: parent.width
+                    visible: root.fullPageMode
+                    height: ovTrCol.implicitHeight + Style.space(14)
+                    radius: 8; color: root.thBgCard; border.color: root.thBorder; border.width: 1
+                    Column {
+                        id: ovTrCol
+                        anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(8) }
+                        spacing: Style.space(4)
+                        Row {
+                            width: parent.width
+                            Text {
+                                width: parent.width * 0.62
+                                text: "Executed Trades & Dividends (" + (root.summaryData.trades || []).length + ")"
+                                color: root.thTextPrimary; font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.body; font.bold: true; elide: Text.ElideRight
+                            }
+                            Text {
+                                width: parent.width * 0.38; horizontalAlignment: Text.AlignRight
+                                text: "Realized " + root.fmtSignedMoney(Number(root.summaryData.realized_pnl || 0), "USD") + " • Divs $" + Number(root.summaryData.total_dividends || 0).toFixed(2)
+                                color: Number(root.summaryData.realized_pnl || 0) >= 0 ? root.thGain : root.thLoss
+                                font.pixelSize: 9; font.bold: true; elide: Text.ElideLeft
+                            }
+                        }
+                        Text {
+                            visible: (root.summaryData.trades || []).length === 0
+                            text: "No executed trades recorded yet. Log entries via Order Ticket or Portal Statements."
+                            color: root.thTextDim; font.pixelSize: 9; wrapMode: Text.WordWrap; width: parent.width
+                        }
+                        Repeater {
+                            model: (root.summaryData.trades || []).slice(0, root.fullPageMode ? 7 : 5)
+                            delegate: Row {
+                                width: ovTrCol.width
+                                Text { width: ovTrCol.width * 0.19; text: modelData.date || "--"; color: root.thTextDim; font.pixelSize: 9 }
+                                Text { width: ovTrCol.width * 0.13; text: modelData.action; color: modelData.action === "SELL" ? root.thLoss : root.thGain; font.pixelSize: 9; font.bold: true }
+                                Text { width: ovTrCol.width * 0.16; text: modelData.symbol; color: root.thTextPrimary; font.pixelSize: 9; font.bold: true }
+                                Text { width: ovTrCol.width * 0.30; text: Number(modelData.shares || 0) + " @ " + root.fmtPrice(modelData.price, modelData.currency); color: root.thTextMuted; font.pixelSize: 9; elide: Text.ElideRight }
+                                Text {
+                                    width: ovTrCol.width * 0.22; horizontalAlignment: Text.AlignRight
+                                    text: (modelData.action === "SELL" && modelData.realized_pnl !== undefined && modelData.realized_pnl !== null)
+                                        ? root.fmtSignedMoney(Number(modelData.realized_pnl), modelData.currency)
+                                        : root.fmtShortMoney(Number(modelData.shares || 0) * Number(modelData.price || 0), modelData.currency)
+                                    color: (modelData.action === "SELL" && Number(modelData.realized_pnl || 0) < 0) ? root.thLoss : root.thAccent
+                                    font.pixelSize: 9; font.bold: true
+                                }
+                            }
+                        }
+                        Row {
+                            width: parent.width
+                            Text { width: parent.width * 0.65; text: "Portal Cash Included: $" + Number(root.summaryData.wallet_cash_usd || 0).toFixed(2) + " USD"; color: root.thTextDim; font.pixelSize: 8 }
+                            Text {
+                                width: parent.width * 0.35; horizontalAlignment: Text.AlignRight
+                                text: "Full Ledger →"; color: root.thAccent; font.pixelSize: 9; font.bold: true
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.activeTab = "ledger" }
                             }
                         }
                     }
@@ -2376,8 +2511,8 @@ Panel {
                     visible: true
                     height: signalsCol.implicitHeight + Style.space(16)
                     radius: 8
-                    color: "#181825"
-                    border.color: "#313244"
+                    color: root.thBgCard
+                    border.color: root.thBorder
                     border.width: 1
 
                     Column {
@@ -2392,7 +2527,7 @@ Panel {
                                 width: parent.width - sigFilterRow.width - Style.space(6)
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: "Quant Trade Signals (" + (root.filteredSignals()).length + ")"
-                                color: "#89b4fa"
+                                color: root.thAccent
                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                 font.pixelSize: Style.font.body
                                 font.bold: true
@@ -2414,12 +2549,12 @@ Panel {
                                         width: sfLbl.implicitWidth + 10
                                         height: Style.space(18)
                                         radius: 4
-                                        color: root.signalFilter === modelData.key ? "#89b4fa" : "#313244"
+                                        color: root.signalFilter === modelData.key ? root.thAccent : root.thBgElevated
                                         Text {
                                             id: sfLbl
                                             anchors.centerIn: parent
                                             text: modelData.label
-                                            color: root.signalFilter === modelData.key ? "#1e1e2e" : "#cdd6f4"
+                                            color: root.signalFilter === modelData.key ? root.thOnAccent : root.thTextPrimary
                                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                             font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                             font.bold: true
@@ -2436,8 +2571,8 @@ Panel {
                                 width: signalsCol.width
                                 height: sigTicketRow.implicitHeight + Style.space(10)
                                 radius: 6
-                                color: sigHover.containsMouse ? "#242436" : "#11111b"
-                                border.color: root.chartSymbol === modelData.symbol ? "#89b4fa" : (modelData.action === "SELL" ? "#4a242d" : "#243b2c")
+                                color: sigHover.containsMouse ? root.thBgActiveTab : root.thBgSubtle
+                                border.color: root.chartSymbol === modelData.symbol ? root.thAccent : (modelData.action === "SELL" ? "#4a242d" : root.thGainBg)
                                 border.width: 1
 
                                 MouseArea {
@@ -2477,12 +2612,12 @@ Panel {
                                                 var r = Math.min(cx, cy) - 3
                                                 ctx.beginPath()
                                                 ctx.arc(cx, cy, r, 0, Math.PI * 2)
-                                                ctx.strokeStyle = "#313244"
+                                                ctx.strokeStyle = root.thBorder
                                                 ctx.lineWidth = 4
                                                 ctx.stroke()
 
                                                 var frac = Math.max(0.05, Math.min(1, scoreVal / 100.0))
-                                                var col = actVal === "SELL" ? "#f38ba8" : (scoreVal >= 50 ? "#a6e3a1" : "#89b4fa")
+                                                var col = actVal === "SELL" ? root.thLoss : (scoreVal >= 50 ? root.thGain : root.thAccent)
                                                 ctx.beginPath()
                                                 ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2)
                                                 ctx.strokeStyle = col
@@ -2494,7 +2629,7 @@ Panel {
                                         Text {
                                             anchors.centerIn: parent
                                             text: String(Math.round(Number(modelData.score || 0)))
-                                            color: modelData.action === "SELL" ? "#f38ba8" : "#a6e3a1"
+                                            color: modelData.action === "SELL" ? root.thLoss : root.thGain
                                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                             font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
                                             font.bold: true
@@ -2512,20 +2647,20 @@ Panel {
                                             spacing: Style.space(4)
                                             Rectangle {
                                                 width: sigActTxt.implicitWidth + 8; height: sigActTxt.implicitHeight + 2; radius: 3
-                                                color: modelData.action === "SELL" ? "#3d2229" : "#243b2c"
+                                                color: modelData.action === "SELL" ? root.thLossBg : root.thGainBg
                                                 anchors.verticalCenter: parent.verticalCenter
-                                                Text { id: sigActTxt; anchors.centerIn: parent; text: modelData.action; color: modelData.action === "SELL" ? "#f38ba8" : "#a6e3a1"; font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
+                                                Text { id: sigActTxt; anchors.centerIn: parent; text: modelData.action; color: modelData.action === "SELL" ? root.thLoss : root.thGain; font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
                                             }
                                             Rectangle {
                                                 visible: Boolean(modelData.horizon)
                                                 width: sigHzTxt.implicitWidth + 6; height: sigHzTxt.implicitHeight + 2; radius: 3
-                                                color: modelData.horizon === "CORE" ? "#1f3a27" : "#272138"
+                                                color: modelData.horizon === "CORE" ? root.thGainBg : root.thAccentBg
                                                 anchors.verticalCenter: parent.verticalCenter
-                                                Text { id: sigHzTxt; anchors.centerIn: parent; text: String(modelData.horizon || "SWING"); color: modelData.horizon === "CORE" ? "#a6e3a1" : "#cba6f7"; font.pixelSize: 8; font.bold: true }
+                                                Text { id: sigHzTxt; anchors.centerIn: parent; text: String(modelData.horizon || "SWING"); color: modelData.horizon === "CORE" ? root.thGain : root.thSecondary; font.pixelSize: 8; font.bold: true }
                                             }
                                             Text {
                                                 text: modelData.symbol
-                                                color: modelData.currency === "ZWG" ? "#f9e2af" : "#cdd6f4"
+                                                color: modelData.currency === "ZWG" ? root.thWarn : root.thTextPrimary
                                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                                 font.pixelSize: Style.font.body
                                                 font.bold: true
@@ -2533,27 +2668,27 @@ Panel {
                                             }
                                             Text {
                                                 text: root.fmtPrice(modelData.price, modelData.currency)
-                                                color: "#a6adc8"
+                                                color: root.thTextMuted
                                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                                 font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
                                                 anchors.verticalCenter: parent.verticalCenter
                                             }
                                             Rectangle {
                                                 visible: Boolean(modelData.wide_spread)
-                                                width: wspTxt.implicitWidth + 6; height: wspTxt.implicitHeight + 2; radius: 3; color: "#2b261d"
+                                                width: wspTxt.implicitWidth + 6; height: wspTxt.implicitHeight + 2; radius: 3; color: root.thWarnBg
                                                 anchors.verticalCenter: parent.verticalCenter
-                                                Text { id: wspTxt; anchors.centerIn: parent; text: "⚠" + Number(modelData.spread_pct || 0).toFixed(0) + "%"; color: "#f9e2af"; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9 }
+                                                Text { id: wspTxt; anchors.centerIn: parent; text: "⚠" + Number(modelData.spread_pct || 0).toFixed(0) + "%"; color: root.thWarn; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9 }
                                             }
                                             Rectangle {
                                                 visible: Boolean(modelData.news_catalyst)
                                                 width: sigNewsTxt.implicitWidth + 8; height: sigNewsTxt.implicitHeight + 2; radius: 3
-                                                color: modelData.news_catalyst ? root.newsSentimentBg(modelData.news_catalyst.sentiment) : "#1e2e4a"
+                                                color: modelData.news_catalyst ? root.newsSentimentBg(modelData.news_catalyst.sentiment) : root.thAccentBg
                                                 anchors.verticalCenter: parent.verticalCenter
                                                 Text {
                                                     id: sigNewsTxt
                                                     anchors.centerIn: parent
                                                     text: modelData.news_catalyst ? ("📰 " + modelData.news_catalyst.category) : ""
-                                                    color: modelData.news_catalyst ? root.newsSentimentColor(modelData.news_catalyst.sentiment) : "#89b4fa"
+                                                    color: modelData.news_catalyst ? root.newsSentimentColor(modelData.news_catalyst.sentiment) : root.thAccent
                                                     font.pixelSize: 8
                                                     font.bold: true
                                                 }
@@ -2564,22 +2699,22 @@ Panel {
                                             }
                                             Rectangle {
                                                 visible: Number(modelData.dtr_turnover || 0) > 0
-                                                width: sigDtrTxt.implicitWidth + 6; height: sigDtrTxt.implicitHeight + 2; radius: 3; color: "#1b2e33"
+                                                width: sigDtrTxt.implicitWidth + 6; height: sigDtrTxt.implicitHeight + 2; radius: 3; color: root.thAccentBg
                                                 anchors.verticalCenter: parent.verticalCenter
-                                                Text { id: sigDtrTxt; anchors.centerIn: parent; text: "📊 Daily Turnover"; color: "#89dceb"; font.pixelSize: 8; font.bold: true }
+                                                Text { id: sigDtrTxt; anchors.centerIn: parent; text: "📊 Daily Turnover"; color: root.thInfo; font.pixelSize: 8; font.bold: true }
                                             }
                                             Rectangle {
                                                 visible: Number(modelData.blue_chip_rank || 0) > 0
-                                                width: sigBcTxt.implicitWidth + 6; height: sigBcTxt.implicitHeight + 2; radius: 3; color: "#272138"
+                                                width: sigBcTxt.implicitWidth + 6; height: sigBcTxt.implicitHeight + 2; radius: 3; color: root.thAccentBg
                                                 anchors.verticalCenter: parent.verticalCenter
-                                                Text { id: sigBcTxt; anchors.centerIn: parent; text: "Top #" + (modelData.blue_chip_rank || "") + " Market Cap"; color: "#cba6f7"; font.pixelSize: 8; font.bold: true }
+                                                Text { id: sigBcTxt; anchors.centerIn: parent; text: "Top #" + (modelData.blue_chip_rank || "") + " Market Cap"; color: root.thSecondary; font.pixelSize: 8; font.bold: true }
                                             }
                                         }
 
                                         Text {
                                             width: parent.width
                                             text: root.fmtReasonText((modelData.reasons || []).join(" • "))
-                                            color: "#a6adc8"
+                                            color: root.thTextMuted
                                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                             font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                             elide: Text.ElideRight
@@ -2593,32 +2728,32 @@ Panel {
                                                 spacing: 2
                                                 anchors.verticalCenter: parent.verticalCenter
                                                 property int liqLevel: Math.round(Number(modelData.liquidity_score || 0) / 20)
-                                                Text { text: "Liquidity"; color: "#6c7086"; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; anchors.verticalCenter: parent.verticalCenter }
+                                                Text { text: "Liquidity"; color: root.thTextDim; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; anchors.verticalCenter: parent.verticalCenter }
                                                 Repeater {
                                                     model: 5
                                                     delegate: Rectangle {
                                                         width: 5; height: 5; radius: 2.5
                                                         anchors.verticalCenter: parent.verticalCenter
-                                                        color: index < parent.liqLevel ? "#89dceb" : "#313244"
+                                                        color: index < parent.liqLevel ? root.thInfo : root.thBgElevated
                                                     }
                                                 }
                                             }
                                             // Bid/Ask mini tug bar
                                             Rectangle {
-                                                width: Style.space(48); height: 4; radius: 2; color: "#3d2229"
+                                                width: Style.space(48); height: 4; radius: 2; color: root.thLossBg
                                                 anchors.verticalCenter: parent.verticalCenter
                                                 visible: Number(modelData.bid_volume || 0) > 0 || Number(modelData.ask_volume || 0) > 0
                                                 Rectangle {
                                                     property real bv: Number(modelData.bid_volume || 0)
                                                     property real av: Number(modelData.ask_volume || 0)
                                                     width: (bv + av) > 0 ? (bv / (bv + av)) * parent.width : parent.width * 0.5
-                                                    height: parent.height; radius: 2; color: "#a6e3a1"
+                                                    height: parent.height; radius: 2; color: root.thGain
                                                 }
                                             }
                                             Text {
                                                 visible: modelData.rsi14 !== null && modelData.rsi14 !== undefined
                                                 text: "Relative Strength " + Number(modelData.rsi14 || 0).toFixed(0)
-                                                color: Number(modelData.rsi14 || 50) <= 35 ? "#a6e3a1" : (Number(modelData.rsi14 || 50) >= 68 ? "#f38ba8" : "#6c7086")
+                                                color: Number(modelData.rsi14 || 50) <= 35 ? root.thGain : (Number(modelData.rsi14 || 50) >= 68 ? root.thLoss : root.thTextDim)
                                                 font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                             }
                                         }
@@ -2631,8 +2766,8 @@ Panel {
                                         width: stgCol.implicitWidth + Style.space(10)
                                         height: stgCol.implicitHeight + Style.space(6)
                                         radius: 5
-                                        color: modelData.action === "SELL" ? "#3d2229" : "#243b2c"
-                                        border.color: modelData.action === "SELL" ? "#f38ba8" : "#a6e3a1"
+                                        color: modelData.action === "SELL" ? root.thLossBg : root.thGainBg
+                                        border.color: modelData.action === "SELL" ? root.thLoss : root.thGain
                                         border.width: 1
                                         Column {
                                             id: stgCol
@@ -2641,7 +2776,7 @@ Panel {
                                             Text {
                                                 anchors.horizontalCenter: parent.horizontalCenter
                                                 text: "Stage Limit Order"
-                                                color: modelData.action === "SELL" ? "#f38ba8" : "#a6e3a1"
+                                                color: modelData.action === "SELL" ? root.thLoss : root.thGain
                                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                                 font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                                 font.bold: true
@@ -2649,7 +2784,7 @@ Panel {
                                             Text {
                                                 anchors.horizontalCenter: parent.horizontalCenter
                                                 text: root.fmtPrice(modelData.optimal_limit || modelData.limit_price || modelData.price, modelData.currency) + (Number(modelData.recommended_shares || 0) > 0 ? (" ×" + modelData.recommended_shares) : "")
-                                                color: "#cdd6f4"
+                                                color: root.thTextPrimary
                                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                                 font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                             }
@@ -2670,8 +2805,8 @@ Panel {
                             visible: root.filteredSignals().length === 0
                             height: calmCol.implicitHeight + Style.space(12)
                             radius: 6
-                            color: "#11111b"
-                            border.color: "#313244"
+                            color: root.thBgSubtle
+                            border.color: root.thBorder
                             border.width: 1
 
                             Column {
@@ -2688,7 +2823,7 @@ Panel {
                                         text: root.summaryData.tracked_only === false
                                             ? "✓ No active signals matching filter."
                                             : ("✓ All " + (root.summaryData.tracked_count || 0) + " tracked stocks calm right now.")
-                                        color: "#a6e3a1"
+                                        color: root.thGain
                                         font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                         font.pixelSize: Style.font.small || Style.font.body
                                         font.bold: true
@@ -2700,10 +2835,10 @@ Panel {
                                         width: bScrTxt.implicitWidth + 12
                                         height: Style.space(20)
                                         radius: 4
-                                        color: "#1e2e4a"
-                                        border.color: "#89b4fa"
+                                        color: root.thAccentBg
+                                        border.color: root.thAccent
                                         border.width: 1
-                                        Text { id: bScrTxt; anchors.centerIn: parent; text: "Market Screener →"; color: "#89b4fa"; font.pixelSize: 9; font.bold: true }
+                                        Text { id: bScrTxt; anchors.centerIn: parent; text: "Market Screener →"; color: root.thAccent; font.pixelSize: 9; font.bold: true }
                                         MouseArea {
                                             anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                                             onClicked: { root.activeTab = "screener"; root.screenerFilter = "signals" }
@@ -2715,7 +2850,7 @@ Panel {
                                     width: parent.width
                                     visible: (root.summaryData.market_top_signals || []).length > 0 && root.summaryData.tracked_only !== false
                                     text: "Top Market Setups (Add to Watchlist):"
-                                    color: "#6c7086"
+                                    color: root.thTextDim
                                     font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                 }
 
@@ -2729,14 +2864,14 @@ Panel {
                                             width: discChipTxt.implicitWidth + 12
                                             height: Style.space(20)
                                             radius: 4
-                                            color: "#181825"
-                                            border.color: "#45475a"
+                                            color: root.thBgCard
+                                            border.color: root.thBorderStrong
                                             border.width: 1
                                             Text {
                                                 id: discChipTxt
                                                 anchors.centerIn: parent
                                                 text: "+ Watchlist " + modelData.symbol + " (" + modelData.signal_score + ")"
-                                                color: "#89b4fa"
+                                                color: root.thAccent
                                                 font.pixelSize: 9
                                                 font.bold: true
                                             }
@@ -2763,8 +2898,8 @@ Panel {
                     visible: root.summaryData.news_enabled !== false && (root.summaryData.news_top || []).length > 0
                     height: overviewNewsCol.implicitHeight + Style.space(14)
                     radius: 8
-                    color: "#181825"
-                    border.color: "#313244"
+                    color: root.thBgCard
+                    border.color: root.thBorder
                     border.width: 1
 
                     Column {
@@ -2779,7 +2914,7 @@ Panel {
                                 width: parent.width - allNewsLink.width - Style.space(6)
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: "Live News Catalysts (" + ((root.summaryData.news_summary || ({})).total || (root.summaryData.news_top || []).length) + ")"
-                                color: "#cba6f7"
+                                color: root.thSecondary
                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                 font.pixelSize: Style.font.body
                                 font.bold: true
@@ -2789,7 +2924,7 @@ Panel {
                                 id: allNewsLink
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: "All News →"
-                                color: "#89b4fa"
+                                color: root.thAccent
                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                 font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
                                 font.bold: true
@@ -2801,13 +2936,13 @@ Panel {
                         }
 
                         Repeater {
-                            model: (root.summaryData.news_top || []).slice(0, 3)
+                            model: (root.summaryData.news_top || []).slice(0, root.fullPageMode ? 5 : 3)
                             delegate: Rectangle {
                                 width: overviewNewsCol.width
                                 height: ovNewsItemCol.implicitHeight + Style.space(10)
                                 radius: 6
-                                color: ovNewsHover.containsMouse ? "#242436" : "#11111b"
-                                border.color: modelData.sentiment === "Bullish" ? "#243b2c" : (modelData.sentiment === "Caution" ? "#4a242d" : "#242436")
+                                color: ovNewsHover.containsMouse ? root.thBgActiveTab : root.thBgSubtle
+                                border.color: modelData.sentiment === "Bullish" ? root.thGainBg : (modelData.sentiment === "Caution" ? "#4a242d" : root.thBgActiveTab)
                                 border.width: 1
 
                                 MouseArea {
@@ -2846,12 +2981,12 @@ Panel {
                                                 anchors.verticalCenter: parent.verticalCenter
                                                 Rectangle {
                                                     width: ovSymLbl.implicitWidth + 8; height: ovSymLbl.implicitHeight + 2; radius: 3
-                                                    color: root.isWatchedSymbol(modelData) || root.isOwnedSymbol(modelData) ? "#1e2e4a" : "#242436"
+                                                    color: root.isWatchedSymbol(modelData) || root.isOwnedSymbol(modelData) ? root.thAccentBg : root.thBgActiveTab
                                                     Text {
                                                         id: ovSymLbl
                                                         anchors.centerIn: parent
                                                         text: modelData
-                                                        color: root.isWatchedSymbol(modelData) || root.isOwnedSymbol(modelData) ? "#89b4fa" : "#cdd6f4"
+                                                        color: root.isWatchedSymbol(modelData) || root.isOwnedSymbol(modelData) ? root.thAccent : root.thTextPrimary
                                                         font.pixelSize: 8
                                                         font.bold: true
                                                     }
@@ -2864,7 +2999,7 @@ Panel {
                                                     visible: !root.isWatchedSymbol(modelData) && !root.isOwnedSymbol(modelData)
                                                     width: ovWatchPlus.implicitWidth + 6; height: ovWatchPlus.implicitHeight + 2; radius: 3
                                                     color: "#1b2e24"
-                                                    Text { id: ovWatchPlus; anchors.centerIn: parent; text: "+ Watchlist"; color: "#a6e3a1"; font.pixelSize: 8; font.bold: true }
+                                                    Text { id: ovWatchPlus; anchors.centerIn: parent; text: "+ Watchlist"; color: root.thGain; font.pixelSize: 8; font.bold: true }
                                                     MouseArea {
                                                         anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running
                                                         onClicked: {
@@ -2878,7 +3013,7 @@ Panel {
                                         }
                                         Text {
                                             text: (modelData.source || "") + (modelData.age_label ? (" • " + root.fmtAgeLabel(modelData.age_label)) : "")
-                                            color: "#6c7086"
+                                            color: root.thTextDim
                                             font.pixelSize: 8
                                             anchors.verticalCenter: parent.verticalCenter
                                             elide: Text.ElideRight
@@ -2888,7 +3023,7 @@ Panel {
                                     Text {
                                         width: parent.width
                                         text: modelData.title || ""
-                                        color: "#cdd6f4"
+                                        color: root.thTextPrimary
                                         font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                         font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
                                         wrapMode: Text.WordWrap
@@ -2908,8 +3043,8 @@ Panel {
                     visible: Boolean(root.summaryData.paper_agent)
                     height: ovAgentRow.implicitHeight + Style.space(10)
                     radius: 8
-                    color: "#181825"
-                    border.color: "#313244"
+                    color: root.thBgCard
+                    border.color: root.thBorder
                     border.width: 1
                     property var pa: root.summaryData.paper_agent || ({})
 
@@ -2936,7 +3071,7 @@ Panel {
                                 var lc = (p.lessons || []).length
                                 return "🤖 $100 Agent: $" + eq.toFixed(2) + " (" + sg + pct.toFixed(2) + "%) • " + oc + (oc === 1 ? " open position" : " open positions") + " • " + lc + (lc === 1 ? " lesson learned" : " lessons learned")
                             }
-                            color: Number(ovAgentBanner.pa.net_pnl_pct || 0) >= 0 ? "#a6e3a1" : "#f38ba8"
+                            color: Number(ovAgentBanner.pa.net_pnl_pct || 0) >= 0 ? root.thGain : root.thLoss
                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                             font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
                             font.bold: true
@@ -2947,7 +3082,7 @@ Panel {
                             id: ovAgentGoTxt
                             anchors.verticalCenter: parent.verticalCenter
                             text: "Open Auto-Trader →"
-                            color: "#89b4fa"
+                            color: root.thAccent
                             font.pixelSize: 9
                             font.bold: true
                         }
@@ -2963,44 +3098,88 @@ Panel {
                     width: parent.width
                     visible: root.fullPageMode
                     height: ovMktPulseCol.implicitHeight + Style.space(14)
-                    radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
+                    radius: 8; color: root.thBgCard; border.color: root.thBorder; border.width: 1
                     Column {
                         id: ovMktPulseCol
                         anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(8) }
                         spacing: Style.space(5)
                         Row {
                             width: parent.width
-                            Text { width: parent.width * 0.62; text: "Market Indices, Flows & Grokking Brain"; color: "#89dceb"; font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.body; font.bold: true; elide: Text.ElideRight }
+                            Text { width: parent.width * 0.62; text: "Market Indices, Flows & Grokking Brain"; color: root.thInfo; font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.body; font.bold: true; elide: Text.ElideRight }
                             Text {
                                 width: parent.width * 0.38; horizontalAlignment: Text.AlignRight
-                                text: "All Indices →"; color: "#89b4fa"; font.pixelSize: 9; font.bold: true
+                                text: "All Indices →"; color: root.thAccent; font.pixelSize: 9; font.bold: true
                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.activeTab = "analytics" }
                             }
                         }
                         Repeater {
-                            model: (ovMktPulseCard.miOv.indices || []).slice(0, 4)
+                            model: (ovMktPulseCard.miOv.indices || []).slice(0, root.fullPageMode ? 7 : 4)
                             delegate: Row {
                                 width: ovMktPulseCol.width
-                                Text { width: ovMktPulseCol.width * 0.48; text: modelData.name; color: "#cdd6f4"; font.pixelSize: 9; elide: Text.ElideRight }
-                                Text { width: ovMktPulseCol.width * 0.28; horizontalAlignment: Text.AlignRight; text: Number(modelData.level || 0).toFixed(2); color: "#89dceb"; font.pixelSize: 9; font.bold: true }
+                                Text { width: ovMktPulseCol.width * 0.48; text: modelData.name; color: root.thTextPrimary; font.pixelSize: 9; elide: Text.ElideRight }
+                                Text { width: ovMktPulseCol.width * 0.28; horizontalAlignment: Text.AlignRight; text: Number(modelData.level || 0).toFixed(2); color: root.thInfo; font.pixelSize: 9; font.bold: true }
                                 Text {
                                     width: ovMktPulseCol.width * 0.24; horizontalAlignment: Text.AlignRight
                                     text: (Number(modelData.change_pct || 0) >= 0 ? "+" : "") + Number(modelData.change_pct || 0).toFixed(2) + "%"
-                                    color: Number(modelData.change_pct || 0) >= 0 ? "#a6e3a1" : "#f38ba8"; font.pixelSize: 9; font.bold: true
+                                    color: Number(modelData.change_pct || 0) >= 0 ? root.thGain : root.thLoss; font.pixelSize: 9; font.bold: true
                                 }
                             }
                         }
                         Rectangle {
-                            width: parent.width; height: ovGkLine.implicitHeight + 8; radius: 4; color: "#11111b"
-                            border.color: String(ovMktPulseCard.gkOv.status || "") === "Grokked (Active)" ? "#a6e3a1" : "#313244"; border.width: 1
+                            width: parent.width; height: ovGkLine.implicitHeight + 8; radius: 4; color: root.thBgSubtle
+                            border.color: String(ovMktPulseCard.gkOv.status || "") === "Grokked (Active)" ? root.thGain : root.thBgElevated; border.width: 1
                             Text {
                                 id: ovGkLine
                                 anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: 5 }
-                                elide: Text.ElideRight; font.pixelSize: 8; color: "#cdd6f4"
+                                elide: Text.ElideRight; font.pixelSize: 8; color: root.thTextPrimary
                                 text: "☸ Grokking: " + String(ovMktPulseCard.gkOv.status || "Accumulating History")
                                     + (Number(ovMktPulseCard.gmOv.episodes_total || 0) >= 18
                                         ? (" • Train " + Number(ovMktPulseCard.gmOv.train_acc_pct || 0).toFixed(0) + "% / Validation " + Number(ovMktPulseCard.gmOv.val_acc_pct || 0).toFixed(0) + "% (" + Number(ovMktPulseCard.gmOv.episodes_total || 0) + " episodes)")
                                         : (" • " + Number(ovMktPulseCard.gmOv.episodes_total || 0) + "/18 episodes"))
+                            }
+                        }
+                    }
+                }
+
+                // Full Screen Overview Center Footer: DTR Institutional Foreign Flows & Latest Mahoraga Lessons
+                Rectangle {
+                    id: ovFlowsLessonsCard
+                    width: parent.width
+                    visible: root.fullPageMode
+                    height: ovFlCol.implicitHeight + Style.space(14)
+                    radius: 8; color: root.thBgCard; border.color: root.thBorder; border.width: 1
+                    Column {
+                        id: ovFlCol
+                        anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(8) }
+                        spacing: Style.space(4)
+                        property var fMap: ((root.summaryData.market_intel || ({})).foreign_counters || ({}))
+                        property var fSyms: Object.keys(fMap)
+                        Row {
+                            width: parent.width
+                            Text { width: parent.width * 0.62; text: "Exchange Foreign Flows & Agent Lessons"; color: root.thWarn; font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.body; font.bold: true; elide: Text.ElideRight }
+                            Text {
+                                width: parent.width * 0.38; horizontalAlignment: Text.AlignRight
+                                text: "Brain & Signals →"; color: root.thAccent; font.pixelSize: 9; font.bold: true
+                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.activeTab = "agent" }
+                            }
+                        }
+                        Repeater {
+                            model: ovFlCol.fSyms.slice(0, root.fullPageMode ? 5 : 3)
+                            delegate: Row {
+                                width: ovFlCol.width
+                                property var fo: ovFlCol.fMap[modelData] || ({})
+                                property real netV: Number(fo.net_val || 0)
+                                Text { width: ovFlCol.width * 0.25; text: modelData; color: fo.currency === "ZWG" ? root.thWarn : root.thTextPrimary; font.pixelSize: 9; font.bold: true }
+                                Text { width: ovFlCol.width * 0.42; text: netV >= 0 ? "Institutional Inflow" : "Institutional Outflow"; color: netV >= 0 ? root.thGain : root.thLoss; font.pixelSize: 9 }
+                                Text { width: ovFlCol.width * 0.33; horizontalAlignment: Text.AlignRight; text: root.fmtSignedMoney(netV, fo.currency || "USD"); color: netV >= 0 ? root.thGain : root.thLoss; font.pixelSize: 9; font.bold: true }
+                            }
+                        }
+                        Rectangle { width: parent.width; height: 1; color: root.thBorder; visible: (ovAgentBanner.pa.lessons || []).length > 0 }
+                        Repeater {
+                            model: (ovAgentBanner.pa.lessons || []).slice(0, root.fullPageMode ? 4 : 2)
+                            delegate: Text {
+                                width: ovFlCol.width; elide: Text.ElideRight; font.pixelSize: 8; color: root.thTextMuted
+                                text: "☸ " + (modelData.date || "") + " • " + (modelData.summary || "")
                             }
                         }
                     }
@@ -3028,8 +3207,8 @@ Panel {
                     visible: true
                     height: watchlistCol.implicitHeight + Style.space(16)
                     radius: 8
-                    color: "#181825"
-                    border.color: "#313244"
+                    color: root.thBgCard
+                    border.color: root.thBorder
                     border.width: 1
 
                     Column {
@@ -3044,7 +3223,7 @@ Panel {
                                 width: parent.width - wlActionBtns.width - Style.space(4)
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: "Watchlist & Order Depth (" + (root.summaryData.watchlist || []).length + ")"
-                                color: "#cdd6f4"
+                                color: root.thTextPrimary
                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                 font.pixelSize: Style.font.body
                                 font.bold: true
@@ -3056,9 +3235,9 @@ Panel {
                                 anchors.verticalCenter: parent.verticalCenter
                                 Rectangle {
                                     width: wlPrcBtnTxt.implicitWidth + 10; height: Style.space(20); radius: 4
-                                    color: root.priceEditOpen ? "#89dceb" : "#313244"
-                                    border.color: "#89dceb"; border.width: 1
-                                    Text { id: wlPrcBtnTxt; anchors.centerIn: parent; text: root.priceEditOpen ? "Close" : "Update Price"; color: root.priceEditOpen ? "#1e1e2e" : "#89dceb"; font.pixelSize: 9; font.bold: true }
+                                    color: root.priceEditOpen ? root.thInfo : root.thBgElevated
+                                    border.color: root.thInfo; border.width: 1
+                                    Text { id: wlPrcBtnTxt; anchors.centerIn: parent; text: root.priceEditOpen ? "Close" : "Update Price"; color: root.priceEditOpen ? root.thOnSecondary : root.thInfo; font.pixelSize: 9; font.bold: true }
                                     MouseArea {
                                         anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                                         onClicked: {
@@ -3070,9 +3249,9 @@ Panel {
                                 }
                                 Rectangle {
                                     width: wlAddBtnTxt.implicitWidth + 10; height: Style.space(20); radius: 4
-                                    color: root.watchAddOpen ? "#89b4fa" : "#1e2e4a"
-                                    border.color: "#89b4fa"; border.width: 1
-                                    Text { id: wlAddBtnTxt; anchors.centerIn: parent; text: root.watchAddOpen ? "Close" : "+ Add Stock"; color: root.watchAddOpen ? "#1e1e2e" : "#89b4fa"; font.pixelSize: 9; font.bold: true }
+                                    color: root.watchAddOpen ? root.thAccent : root.thAccentBg
+                                    border.color: root.thAccent; border.width: 1
+                                    Text { id: wlAddBtnTxt; anchors.centerIn: parent; text: root.watchAddOpen ? "Close" : "+ Add Stock"; color: root.watchAddOpen ? root.thOnAccent : root.thAccent; font.pixelSize: 9; font.bold: true }
                                     MouseArea {
                                         anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                                         onClicked: {
@@ -3087,24 +3266,24 @@ Panel {
                         // Collapsible Add to Watchlist Bar
                         Rectangle {
                             width: watchlistCol.width; visible: root.watchAddOpen
-                            height: wlAddFormRow.implicitHeight + Style.space(10); radius: 6; color: "#11111b"; border.color: "#89b4fa"; border.width: 1
+                            height: wlAddFormRow.implicitHeight + Style.space(10); radius: 6; color: root.thBgSubtle; border.color: root.thAccent; border.width: 1
                             Row {
                                 id: wlAddFormRow
                                 anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: Style.space(6) }
                                 spacing: Style.space(5)
                                 Rectangle {
-                                    width: parent.width * 0.64; height: Style.space(24); radius: 4; color: "#313244"; border.color: "#45475a"; border.width: 1
+                                    width: parent.width * 0.64; height: Style.space(24); radius: 4; color: root.thBgElevated; border.color: root.thBorderStrong; border.width: 1
                                     TextInput {
-                                        id: wlAddSymIn; anchors.fill: parent; anchors.margins: 4; color: "#cdd6f4"
+                                        id: wlAddSymIn; anchors.fill: parent; anchors.margins: 4; color: root.thTextPrimary
                                         font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.small || Style.font.body
                                         text: root.watchAddSym; onTextChanged: if (root.watchAddSym !== text) root.watchAddSym = text
                                         Connections { target: root; function onWatchAddSymChanged() { if (wlAddSymIn.text !== root.watchAddSym) wlAddSymIn.text = root.watchAddSym } }
-                                        Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Enter stock symbol (for example INFR or SIM)"; color: "#6c7086"; font: wlAddSymIn.font; visible: !wlAddSymIn.text && !wlAddSymIn.activeFocus }
+                                        Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Enter stock symbol (for example INFR or SIM)"; color: root.thTextDim; font: wlAddSymIn.font; visible: !wlAddSymIn.text && !wlAddSymIn.activeFocus }
                                     }
                                 }
                                 Rectangle {
-                                    width: parent.width * 0.36 - Style.space(5); height: Style.space(24); radius: 4; color: "#89b4fa"
-                                    Text { anchors.centerIn: parent; text: "Add to Watchlist"; color: "#1e1e2e"; font.pixelSize: 10; font.bold: true }
+                                    width: parent.width * 0.36 - Style.space(5); height: Style.space(24); radius: 4; color: root.thAccent
+                                    Text { anchors.centerIn: parent; text: "Add to Watchlist"; color: root.thOnAccent; font.pixelSize: 10; font.bold: true }
                                     MouseArea {
                                         anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running
                                         onClicked: {
@@ -3123,34 +3302,34 @@ Panel {
                         // Collapsible Manual Price Override Bar
                         Rectangle {
                             width: watchlistCol.width; visible: root.priceEditOpen
-                            height: wlPrcFormRow.implicitHeight + Style.space(10); radius: 6; color: "#11111b"; border.color: "#89dceb"; border.width: 1
+                            height: wlPrcFormRow.implicitHeight + Style.space(10); radius: 6; color: root.thBgSubtle; border.color: root.thInfo; border.width: 1
                             Row {
                                 id: wlPrcFormRow
                                 anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: Style.space(6) }
                                 spacing: Style.space(5)
                                 Rectangle {
-                                    width: parent.width * 0.32; height: Style.space(24); radius: 4; color: "#313244"; border.color: "#45475a"; border.width: 1
+                                    width: parent.width * 0.32; height: Style.space(24); radius: 4; color: root.thBgElevated; border.color: root.thBorderStrong; border.width: 1
                                     TextInput {
-                                        id: peSymIn; anchors.fill: parent; anchors.margins: 4; color: "#cdd6f4"
+                                        id: peSymIn; anchors.fill: parent; anchors.margins: 4; color: root.thTextPrimary
                                         font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.small || Style.font.body
                                         text: root.priceEditSym; onTextChanged: if (root.priceEditSym !== text) root.priceEditSym = text
                                         Connections { target: root; function onPriceEditSymChanged() { if (peSymIn.text !== root.priceEditSym) peSymIn.text = root.priceEditSym } }
-                                        Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Symbol"; color: "#6c7086"; font: peSymIn.font; visible: !peSymIn.text && !peSymIn.activeFocus }
+                                        Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Symbol"; color: root.thTextDim; font: peSymIn.font; visible: !peSymIn.text && !peSymIn.activeFocus }
                                     }
                                 }
                                 Rectangle {
-                                    width: parent.width * 0.34; height: Style.space(24); radius: 4; color: "#313244"; border.color: "#45475a"; border.width: 1
+                                    width: parent.width * 0.34; height: Style.space(24); radius: 4; color: root.thBgElevated; border.color: root.thBorderStrong; border.width: 1
                                     TextInput {
-                                        id: peValIn; anchors.fill: parent; anchors.margins: 4; color: "#cdd6f4"
+                                        id: peValIn; anchors.fill: parent; anchors.margins: 4; color: root.thTextPrimary
                                         font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.small || Style.font.body
                                         text: root.priceEditVal; onTextChanged: if (root.priceEditVal !== text) root.priceEditVal = text
                                         Connections { target: root; function onPriceEditValChanged() { if (peValIn.text !== root.priceEditVal) peValIn.text = root.priceEditVal } }
-                                        Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "New Price $"; color: "#6c7086"; font: peValIn.font; visible: !peValIn.text && !peValIn.activeFocus }
+                                        Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "New Price $"; color: root.thTextDim; font: peValIn.font; visible: !peValIn.text && !peValIn.activeFocus }
                                     }
                                 }
                                 Rectangle {
-                                    width: parent.width * 0.34 - Style.space(10); height: Style.space(24); radius: 4; color: "#89dceb"
-                                    Text { anchors.centerIn: parent; text: "Save Price"; color: "#1e1e2e"; font.pixelSize: 10; font.bold: true }
+                                    width: parent.width * 0.34 - Style.space(10); height: Style.space(24); radius: 4; color: root.thInfo
+                                    Text { anchors.centerIn: parent; text: "Save Price"; color: root.thOnSecondary; font.pixelSize: 10; font.bold: true }
                                     MouseArea {
                                         anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running
                                         onClicked: {
@@ -3170,7 +3349,7 @@ Panel {
                         Text {
                             visible: (root.summaryData.watchlist || []).length === 0 && !root.watchAddOpen
                             text: "Watchlist is empty — click '+ Add Stock' above to track counters."
-                            color: "#6c7086"
+                            color: root.thTextDim
                             font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
                         }
 
@@ -3180,8 +3359,8 @@ Panel {
                                 width: watchlistCol.width
                                 height: watchInnerCol.implicitHeight + Style.space(8)
                                 radius: 6
-                                color: root.chartSymbol === modelData.symbol ? "#242436" : (watchHover.containsMouse ? "#1e1e2e" : "#11111b")
-                                border.color: root.chartSymbol === modelData.symbol ? "#89b4fa" : "#242436"
+                                color: root.chartSymbol === modelData.symbol ? root.thBgActiveTab : (watchHover.containsMouse ? root.thBgElevated : root.thBgSubtle)
+                                border.color: root.chartSymbol === modelData.symbol ? root.thAccent : root.thBgActiveTab
                                 border.width: 1
 
                                 Rectangle {
@@ -3190,7 +3369,7 @@ Panel {
                                     height: parent.height - 6
                                     anchors { left: parent.left; verticalCenter: parent.verticalCenter; leftMargin: 1 }
                                     radius: 1.5
-                                    color: "#89b4fa"
+                                    color: root.thAccent
                                 }
 
                                 MouseArea {
@@ -3218,7 +3397,7 @@ Panel {
                                             width: watchInnerCol.width * 0.20
                                             anchors.verticalCenter: parent.verticalCenter
                                             text: modelData.symbol + (((root.summaryData.notes || ({}))[modelData.symbol]) ? " ✎" : "")
-                                            color: modelData.currency === "ZWG" ? "#f9e2af" : "#cdd6f4"
+                                            color: modelData.currency === "ZWG" ? root.thWarn : root.thTextPrimary
                                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                             font.pixelSize: Style.font.small || Style.font.body
                                             font.bold: true
@@ -3241,12 +3420,12 @@ Panel {
                                                 if (!pts || pts.length === 0) return
                                                 if (pts.length === 1) {
                                                     ctx.save()
-                                                    ctx.strokeStyle = "#45475a"
+                                                    ctx.strokeStyle = String(root.thBorderStrong)
                                                     ctx.lineWidth = 1
                                                     ctx.setLineDash([2, 2])
                                                     ctx.beginPath()
                                                     ctx.moveTo(2, height / 2); ctx.lineTo(width - 4, height / 2); ctx.stroke()
-                                                    ctx.fillStyle = "#89b4fa"
+                                                    ctx.fillStyle = String(root.thAccent)
                                                     ctx.beginPath(); ctx.arc(width - 4, height / 2, 2.2, 0, Math.PI * 2); ctx.fill()
                                                     ctx.restore()
                                                     return
@@ -3255,7 +3434,7 @@ Panel {
                                                 var maxV = Math.max.apply(null, pts)
                                                 var span = maxV - minV || 1
                                                 var up = pts[pts.length - 1] >= pts[0]
-                                                var strokeCol = up ? "#a6e3a1" : "#f38ba8"
+                                                var strokeCol = up ? root.thGain : root.thLoss
                                                 var coords = []
                                                 for (var i = 0; i < pts.length; i++) {
                                                     var x = (i / (pts.length - 1)) * (width - 6) + 2
@@ -3297,7 +3476,7 @@ Panel {
                                                 width: chgText.implicitWidth + 6
                                                 height: chgText.implicitHeight + 3
                                                 radius: 4
-                                                color: Number(modelData.change_pct || 0) >= 0 ? "#243b2c" : "#3d2229"
+                                                color: Number(modelData.change_pct || 0) >= 0 ? root.thGainBg : root.thLossBg
                                                 Text {
                                                     id: chgText
                                                     anchors.centerIn: parent
@@ -3306,7 +3485,7 @@ Panel {
                                                         var c = Number(modelData.change_pct)
                                                         return (c >= 0 ? "▲" : "▼") + (c >= 0 ? "+" : "") + c.toFixed(1) + "%"
                                                     }
-                                                    color: Number(modelData.change_pct || 0) >= 0 ? "#a6e3a1" : "#f38ba8"
+                                                    color: Number(modelData.change_pct || 0) >= 0 ? root.thGain : root.thLoss
                                                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                                     font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                                     font.bold: true
@@ -3319,7 +3498,7 @@ Panel {
                                             horizontalAlignment: Text.AlignRight
                                             elide: Text.ElideLeft
                                             text: modelData.price !== null && modelData.price !== undefined ? root.fmtPrice(modelData.price, modelData.currency) : "N/A"
-                                            color: "#cdd6f4"
+                                            color: root.thTextPrimary
                                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                             font.pixelSize: Style.font.small || Style.font.body
                                         }
@@ -3328,7 +3507,7 @@ Panel {
                                             spacing: 3
                                             Text {
                                                 text: "🔔"
-                                                color: "#f9e2af"
+                                                color: root.thWarn
                                                 font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
                                                 MouseArea {
                                                     anchors.fill: parent; cursorShape: Qt.PointingHandCursor
@@ -3337,7 +3516,7 @@ Panel {
                                             }
                                             Text {
                                                 text: "+"
-                                                color: "#a6e3a1"
+                                                color: root.thGain
                                                 font.pixelSize: Style.font.body
                                                 font.bold: true
                                                 MouseArea {
@@ -3347,7 +3526,7 @@ Panel {
                                             }
                                             Text {
                                                 text: "×"
-                                                color: "#f38ba8"
+                                                color: root.thLoss
                                                 font.pixelSize: Style.font.body
                                                 font.bold: true
                                                 MouseArea {
@@ -3372,7 +3551,7 @@ Panel {
                                             width: parent.width * 0.34
                                             visible: Number(modelData.best_bid || 0) > 0
                                             text: "Bid " + root.fmtPrice(modelData.best_bid, modelData.currency) + " × " + root.fmtVol(modelData.bid_volume || 0)
-                                            color: "#a6e3a1"
+                                            color: root.thGain
                                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                             font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                             elide: Text.ElideRight
@@ -3382,7 +3561,7 @@ Panel {
                                             width: parent.width * 0.18
                                             height: 5
                                             radius: 2
-                                            color: "#3d2229"
+                                            color: root.thLossBg
                                             anchors.verticalCenter: parent.verticalCenter
                                             Rectangle {
                                                 width: {
@@ -3393,7 +3572,7 @@ Panel {
                                                 }
                                                 height: parent.height
                                                 radius: 2
-                                                color: "#a6e3a1"
+                                                color: root.thGain
                                             }
                                         }
 
@@ -3401,7 +3580,7 @@ Panel {
                                             width: parent.width * 0.14
                                             horizontalAlignment: Text.AlignHCenter
                                             text: (modelData.spread_pct !== null && modelData.spread_pct !== undefined) ? (Number(modelData.spread_pct).toFixed(1) + "%") : ""
-                                            color: modelData.wide_spread ? "#f9e2af" : "#6c7086"
+                                            color: modelData.wide_spread ? root.thWarn : root.thTextDim
                                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                             font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                             font.bold: Boolean(modelData.wide_spread)
@@ -3412,7 +3591,7 @@ Panel {
                                             visible: Number(modelData.best_ask || 0) > 0
                                             horizontalAlignment: Text.AlignRight
                                             text: "Ask " + root.fmtPrice(modelData.best_ask, modelData.currency) + " × " + root.fmtVol(modelData.ask_volume || 0)
-                                            color: "#f38ba8"
+                                            color: root.thLoss
                                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                             font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                             elide: Text.ElideRight
@@ -3425,7 +3604,7 @@ Panel {
                                         visible: Boolean(modelData.news_catalyst)
                                         height: wlNewsRow.implicitHeight + 4
                                         radius: 4
-                                        color: modelData.news_catalyst ? root.newsSentimentBg(modelData.news_catalyst.sentiment) : "#181825"
+                                        color: modelData.news_catalyst ? root.newsSentimentBg(modelData.news_catalyst.sentiment) : root.thBgCard
                                         Row {
                                             id: wlNewsRow
                                             anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; leftMargin: 5; rightMargin: 5 }
@@ -3433,14 +3612,14 @@ Panel {
                                             Text {
                                                 id: wlNewsCatTxt
                                                 text: modelData.news_catalyst ? ("📰 " + modelData.news_catalyst.category) : ""
-                                                color: modelData.news_catalyst ? root.newsSentimentColor(modelData.news_catalyst.sentiment) : "#89b4fa"
+                                                color: modelData.news_catalyst ? root.newsSentimentColor(modelData.news_catalyst.sentiment) : root.thAccent
                                                 font.pixelSize: 8
                                                 font.bold: true
                                             }
                                             Text {
                                                 width: Math.max(40, parent.width - wlNewsCatTxt.implicitWidth - 6)
                                                 text: modelData.news_catalyst ? String(modelData.news_catalyst.title || "") : ""
-                                                color: "#cdd6f4"
+                                                color: root.thTextPrimary
                                                 font.pixelSize: 8
                                                 elide: Text.ElideRight
                                             }
@@ -3462,8 +3641,8 @@ Panel {
                     visible: root.chartSymbol.length > 0
                     height: chartCol.implicitHeight + Style.space(16)
                     radius: 8
-                    color: "#181825"
-                    border.color: "#313244"
+                    color: root.thBgCard
+                    border.color: root.thBorder
                     border.width: 1
 
                     Column {
@@ -3479,7 +3658,7 @@ Panel {
                                 width: parent.width - chartCloseBtn.width - Style.space(6)
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: root.chartSymbol + " • 30-Day Price Chart"
-                                color: "#cdd6f4"
+                                color: root.thTextPrimary
                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                 font.pixelSize: Style.font.body
                                 font.bold: true
@@ -3490,7 +3669,7 @@ Panel {
                                 id: chartCloseBtn
                                 anchors.verticalCenter: parent.verticalCenter
                                 text: "×"
-                                color: "#f38ba8"
+                                color: root.thLoss
                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                 font.pixelSize: Style.font.body
                                 font.bold: true
@@ -3515,12 +3694,12 @@ Panel {
                                     width: cModeLbl.implicitWidth + 10
                                     height: Style.space(18)
                                     radius: 4
-                                    color: root.chartMode === modelData.key ? "#89b4fa" : "#313244"
+                                    color: root.chartMode === modelData.key ? root.thAccent : root.thBgElevated
                                     Text {
                                         id: cModeLbl
                                         anchors.centerIn: parent
                                         text: modelData.label
-                                        color: root.chartMode === modelData.key ? "#1e1e2e" : "#cdd6f4"
+                                        color: root.chartMode === modelData.key ? root.thOnAccent : root.thTextPrimary
                                         font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                         font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                         font.bold: root.chartMode === modelData.key
@@ -3530,23 +3709,23 @@ Panel {
                             }
                             Rectangle {
                                 width: maTogLbl.implicitWidth + 10; height: Style.space(18); radius: 4
-                                color: root.showMa20Overlay ? "#1e2e4a" : "#313244"
-                                border.color: root.showMa20Overlay ? "#89b4fa" : "transparent"; border.width: 1
-                                Text { id: maTogLbl; anchors.centerIn: parent; text: "Moving Average"; color: root.showMa20Overlay ? "#89b4fa" : "#6c7086"; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
+                                color: root.showMa20Overlay ? root.thAccentBg : root.thBgElevated
+                                border.color: root.showMa20Overlay ? root.thAccent : "transparent"; border.width: 1
+                                Text { id: maTogLbl; anchors.centerIn: parent; text: "Moving Average"; color: root.showMa20Overlay ? root.thAccent : root.thTextDim; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.showMa20Overlay = !root.showMa20Overlay }
                             }
                             Rectangle {
                                 width: beTogLbl.implicitWidth + 10; height: Style.space(18); radius: 4
-                                color: root.showBeOverlay ? "#2b261d" : "#313244"
-                                border.color: root.showBeOverlay ? "#f9e2af" : "transparent"; border.width: 1
-                                Text { id: beTogLbl; anchors.centerIn: parent; text: "Break-Even"; color: root.showBeOverlay ? "#f9e2af" : "#6c7086"; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
+                                color: root.showBeOverlay ? root.thWarnBg : root.thBgElevated
+                                border.color: root.showBeOverlay ? root.thWarn : "transparent"; border.width: 1
+                                Text { id: beTogLbl; anchors.centerIn: parent; text: "Break-Even"; color: root.showBeOverlay ? root.thWarn : root.thTextDim; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.showBeOverlay = !root.showBeOverlay }
                             }
                             Rectangle {
                                 width: olTogLbl.implicitWidth + 10; height: Style.space(18); radius: 4
-                                color: root.showOptLimOverlay ? "#1b2e33" : "#313244"
-                                border.color: root.showOptLimOverlay ? "#89dceb" : "transparent"; border.width: 1
-                                Text { id: olTogLbl; anchors.centerIn: parent; text: "Optimal Limit"; color: root.showOptLimOverlay ? "#89dceb" : "#6c7086"; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
+                                color: root.showOptLimOverlay ? root.thAccentBg : root.thBgElevated
+                                border.color: root.showOptLimOverlay ? root.thInfo : "transparent"; border.width: 1
+                                Text { id: olTogLbl; anchors.centerIn: parent; text: "Optimal Limit"; color: root.showOptLimOverlay ? root.thInfo : root.thTextDim; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.showOptLimOverlay = !root.showOptLimOverlay }
                             }
                         }
@@ -3574,14 +3753,14 @@ Panel {
                                     width: qsLbl.implicitWidth + 10
                                     height: Style.space(16)
                                     radius: 3
-                                    color: root.chartSymbol === modelData ? "#89b4fa" : "#11111b"
-                                    border.color: root.chartSymbol === modelData ? "#89b4fa" : "#313244"
+                                    color: root.chartSymbol === modelData ? root.thAccent : root.thBgSubtle
+                                    border.color: root.chartSymbol === modelData ? root.thAccent : root.thBgElevated
                                     border.width: 1
                                     Text {
                                         id: qsLbl
                                         anchors.centerIn: parent
                                         text: modelData
-                                        color: root.chartSymbol === modelData ? "#1e1e2e" : "#a6adc8"
+                                        color: root.chartSymbol === modelData ? root.thOnAccent : root.thTextMuted
                                         font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                         font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                         font.bold: root.chartSymbol === modelData
@@ -3597,7 +3776,7 @@ Panel {
                         // Interactive Price Canvas with Bid/Ask Corridor + Floating Crosshair HUD
                         Item {
                             width: parent.width
-                            height: root.fullPageMode ? Style.space(210) : Style.space(162)
+                            height: root.fullPageMode ? Math.max(Style.space(340), Math.round(root.fullBodyHeight * 0.42)) : Style.space(162)
 
                             Canvas {
                                 id: candleCanvas
@@ -3656,13 +3835,13 @@ Panel {
                                     for (var g = 0; g < levels.length; g++) {
                                         var gy = yFor(levels[g])
                                         ctx.save()
-                                        ctx.strokeStyle = "#242436"
+                                        ctx.strokeStyle = String(root.thBgActiveTab)
                                         ctx.lineWidth = 1
                                         ctx.setLineDash([2, 3])
                                         ctx.beginPath()
                                         ctx.moveTo(padLeft, gy); ctx.lineTo(width - padRight, gy); ctx.stroke()
                                         ctx.restore()
-                                        ctx.fillStyle = "#6c7086"
+                                        ctx.fillStyle = String(root.thTextDim)
                                         var yPref = root.activeCurrency() === "ZWG" ? "Z" : "$"
                                         ctx.fillText(yPref + levels[g].toFixed(3), 0, gy)
                                     }
@@ -3672,7 +3851,7 @@ Panel {
 
                                     if (root.chartMode === "line") {
                                         var up = Number(cs[n - 1].close) >= Number(cs[0].open)
-                                        var strokeCol = up ? "#a6e3a1" : "#f38ba8"
+                                        var strokeCol = up ? root.thGain : root.thLoss
                                         var pts = []
                                         for (var li = 0; li < n; li++) {
                                             var lx = n === 1 ? (padLeft + plotW / 2) : (padLeft + (li / (n - 1)) * plotW)
@@ -3708,11 +3887,11 @@ Panel {
                                             var cd = cs[c]
                                             var cx = padLeft + slotW * (c + 0.5)
                                             if (c === root.hoveredCandleIdx) {
-                                                ctx.fillStyle = "#242436"
+                                                ctx.fillStyle = String(root.thBgActiveTab)
                                                 ctx.fillRect(padLeft + slotW * c, padTop, slotW, plotH)
                                             }
                                             var o = Number(cd.open), h = Number(cd.high), l = Number(cd.low), cl = Number(cd.close)
-                                            var col = cl >= o ? "#a6e3a1" : "#f38ba8"
+                                            var col = cl >= o ? root.thGain : root.thLoss
                                             ctx.strokeStyle = col; ctx.lineWidth = 1.5
                                             ctx.beginPath(); ctx.moveTo(cx, yFor(h)); ctx.lineTo(cx, yFor(l)); ctx.stroke()
                                             var yo = yFor(o), yc = yFor(cl)
@@ -3724,7 +3903,7 @@ Panel {
                                     // 20D Moving Average overlay (#89b4fa)
                                     var maSer = (aq && aq.ma20_series) ? aq.ma20_series : []
                                     if (root.showMa20Overlay && maSer.length >= 2 && maSer.length === n) {
-                                        ctx.strokeStyle = "#89b4fa"
+                                        ctx.strokeStyle = String(root.thAccent)
                                         ctx.lineWidth = 1.4
                                         ctx.beginPath()
                                         for (var mi = 0; mi < maSer.length; mi++) {
@@ -3739,7 +3918,7 @@ Panel {
                                     var refCost = ah ? Number(ah.breakeven_price || ah.avg_cost || 0) : 0
                                     if (root.showBeOverlay && refCost >= minV && refCost <= maxV && refCost > 0) {
                                         var cy = yFor(refCost)
-                                        ctx.save(); ctx.strokeStyle = "#f9e2af"; ctx.lineWidth = 1.2; ctx.setLineDash([4, 3])
+                                        ctx.save(); ctx.strokeStyle = String(root.thWarn); ctx.lineWidth = 1.2; ctx.setLineDash([4, 3])
                                         ctx.beginPath(); ctx.moveTo(padLeft, cy); ctx.lineTo(width - padRight, cy); ctx.stroke()
                                         ctx.restore()
                                     }
@@ -3748,7 +3927,7 @@ Panel {
                                     var optL = aq ? Number(aq.optimal_limit || 0) : 0
                                     if (root.showOptLimOverlay && optL >= minV && optL <= maxV && optL > 0) {
                                         var oy = yFor(optL)
-                                        ctx.save(); ctx.strokeStyle = "#89dceb"; ctx.lineWidth = 1.1; ctx.setLineDash([2, 3])
+                                        ctx.save(); ctx.strokeStyle = String(root.thInfo); ctx.lineWidth = 1.1; ctx.setLineDash([2, 3])
                                         ctx.beginPath(); ctx.moveTo(padLeft, oy); ctx.lineTo(width - padRight, oy); ctx.stroke()
                                         ctx.restore()
                                     }
@@ -3775,7 +3954,7 @@ Panel {
                                 height: hudTxt.implicitHeight + 4
                                 radius: 4
                                 color: "#cc11111b"
-                                border.color: "#313244"
+                                border.color: root.thBorder
                                 border.width: 1
                                 property var curCandle: {
                                     var cs = root.activeCandles()
@@ -3792,7 +3971,7 @@ Panel {
                                         var pf = root.moneyPrefix(root.activeCurrency())
                                         return c.date + " • Open " + pf + Number(c.open).toFixed(4) + "  High " + pf + Number(c.high).toFixed(4) + "  Low " + pf + Number(c.low).toFixed(4) + "  Close " + pf + Number(c.close).toFixed(4)
                                     }
-                                    color: parent.curCandle ? (Number(parent.curCandle.close) >= Number(parent.curCandle.open) ? "#a6e3a1" : "#f38ba8") : "#a6adc8"
+                                    color: parent.curCandle ? (Number(parent.curCandle.close) >= Number(parent.curCandle.open) ? root.thGain : root.thLoss) : root.thTextMuted
                                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                     font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                 }
@@ -3815,11 +3994,11 @@ Panel {
                                 spacing: 2
                                 Row {
                                     width: parent.width
-                                    Text { width: parent.width * 0.62; text: "Relative Strength (14-Day)"; color: "#a6adc8"; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
+                                    Text { width: parent.width * 0.62; text: "Relative Strength (14-Day)"; color: root.thTextMuted; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
                                     Text {
                                         width: parent.width * 0.38; horizontalAlignment: Text.AlignRight
                                         text: parent.parent.parent.hasRsi ? (parent.parent.parent.rsiVal.toFixed(0) + (parent.parent.parent.rsiVal <= 30 ? " Oversold" : (parent.parent.parent.rsiVal >= 70 ? " Overbought" : " Neutral"))) : "--"
-                                        color: !parent.parent.parent.hasRsi ? "#6c7086" : (parent.parent.parent.rsiVal <= 30 ? "#a6e3a1" : (parent.parent.parent.rsiVal >= 70 ? "#f38ba8" : "#cdd6f4"))
+                                        color: !parent.parent.parent.hasRsi ? root.thTextDim : (parent.parent.parent.rsiVal <= 30 ? root.thGain : (parent.parent.parent.rsiVal >= 70 ? root.thLoss : root.thTextPrimary))
                                         font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true
                                     }
                                 }
@@ -3828,15 +4007,15 @@ Panel {
                                     Row {
                                         anchors.verticalCenter: parent.verticalCenter
                                         width: parent.width; height: 5; spacing: 1
-                                        Rectangle { width: parent.width * 0.30; height: 5; radius: 2; color: "#243b2c" }
-                                        Rectangle { width: parent.width * 0.40 - 2; height: 5; radius: 2; color: "#313244" }
-                                        Rectangle { width: parent.width * 0.30; height: 5; radius: 2; color: "#3d2229" }
+                                        Rectangle { width: parent.width * 0.30; height: 5; radius: 2; color: root.thGainBg }
+                                        Rectangle { width: parent.width * 0.40 - 2; height: 5; radius: 2; color: root.thBgElevated }
+                                        Rectangle { width: parent.width * 0.30; height: 5; radius: 2; color: root.thLossBg }
                                     }
                                     Rectangle {
                                         visible: parent.parent.parent.hasRsi
                                         x: Math.max(0, Math.min(parent.width - 6, (parent.parent.parent.rsiVal / 100.0) * parent.width - 3))
                                         anchors.verticalCenter: parent.verticalCenter
-                                        width: 6; height: 8; radius: 3; color: "#cdd6f4"; border.color: "#11111b"; border.width: 1
+                                        width: 6; height: 8; radius: 3; color: root.thTextPrimary; border.color: root.thBgSubtle; border.width: 1
                                     }
                                 }
                             }
@@ -3847,11 +4026,11 @@ Panel {
                                 spacing: 2
                                 Row {
                                     width: parent.width
-                                    Text { width: parent.width * 0.62; text: "Price Z-Score (20-Day)"; color: "#a6adc8"; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
+                                    Text { width: parent.width * 0.62; text: "Price Z-Score (20-Day)"; color: root.thTextMuted; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
                                     Text {
                                         width: parent.width * 0.38; horizontalAlignment: Text.AlignRight
                                         text: parent.parent.parent.hasZ ? ((parent.parent.parent.zVal >= 0 ? "+" : "") + parent.parent.parent.zVal.toFixed(1) + " std dev") : "--"
-                                        color: !parent.parent.parent.hasZ ? "#6c7086" : (parent.parent.parent.zVal <= -1.0 ? "#a6e3a1" : (parent.parent.parent.zVal >= 1.5 ? "#f38ba8" : "#89b4fa"))
+                                        color: !parent.parent.parent.hasZ ? root.thTextDim : (parent.parent.parent.zVal <= -1.0 ? root.thGain : (parent.parent.parent.zVal >= 1.5 ? root.thLoss : root.thAccent))
                                         font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true
                                     }
                                 }
@@ -3859,15 +4038,15 @@ Panel {
                                     width: parent.width; height: 8
                                     Rectangle {
                                         anchors.verticalCenter: parent.verticalCenter
-                                        width: parent.width; height: 5; radius: 2; color: "#313244"
-                                        Rectangle { x: parent.width / 2 - 1; y: -1; width: 2; height: 7; color: "#6c7086" }
+                                        width: parent.width; height: 5; radius: 2; color: root.thBgElevated
+                                        Rectangle { x: parent.width / 2 - 1; y: -1; width: 2; height: 7; color: root.thTextDim }
                                         Rectangle {
                                             visible: parent.parent.parent.parent.hasZ
                                             property real norm: Math.max(-2, Math.min(2, parent.parent.parent.parent.zVal)) / 4.0 + 0.5
                                             x: Math.max(0, Math.min(parent.width - 6, norm * parent.width - 3))
                                             y: -1.5; width: 6; height: 8; radius: 3
-                                            color: parent.parent.parent.parent.zVal <= -1.0 ? "#a6e3a1" : (parent.parent.parent.parent.zVal >= 1.5 ? "#f38ba8" : "#89b4fa")
-                                            border.color: "#11111b"; border.width: 1
+                                            color: parent.parent.parent.parent.zVal <= -1.0 ? root.thGain : (parent.parent.parent.parent.zVal >= 1.5 ? root.thLoss : root.thAccent)
+                                            border.color: root.thBgSubtle; border.width: 1
                                         }
                                     }
                                 }
@@ -3883,7 +4062,7 @@ Panel {
                             Text {
                                 width: parent.width * 0.38
                                 text: parent.aq.optimal_limit ? ("Optimal Limit: " + root.fmtPrice(parent.aq.optimal_limit, root.activeCurrency())) : "Optimal Limit: --"
-                                color: "#89dceb"
+                                color: root.thInfo
                                 font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                 font.bold: true
                                 elide: Text.ElideRight
@@ -3892,14 +4071,14 @@ Panel {
                                 width: parent.width * 0.30
                                 horizontalAlignment: Text.AlignHCenter
                                 text: (parent.aq.liquidity_score !== undefined && parent.aq.liquidity_score !== null) ? ("Liquidity: " + parent.aq.liquidity_score + "/100") : "Liquidity: --"
-                                color: "#a6adc8"
+                                color: root.thTextMuted
                                 font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                             }
                             Text {
                                 width: parent.width * 0.32 - Style.space(12)
                                 horizontalAlignment: Text.AlignRight
                                 text: parent.ah ? ("Breakeven: " + root.fmtPrice(parent.ah.breakeven_price || parent.ah.avg_cost || 0, root.activeCurrency())) : ((parent.aq.spread_pct !== null && parent.aq.spread_pct !== undefined) ? ("Spread: " + Number(parent.aq.spread_pct).toFixed(1) + "%") : "")
-                                color: "#f9e2af"
+                                color: root.thWarn
                                 font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                 elide: Text.ElideRight
                             }
@@ -3912,8 +4091,8 @@ Panel {
                     width: parent.width
                     height: manualCol.implicitHeight + Style.space(16)
                     radius: 8
-                    color: "#181825"
-                    border.color: "#313244"
+                    color: root.thBgCard
+                    border.color: root.thBorder
                     border.width: 1
 
                     Column {
@@ -3923,7 +4102,7 @@ Panel {
 
                         Text {
                             text: "Trade Order Ticket"
-                            color: "#cdd6f4"
+                            color: root.thTextPrimary
                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                             font.pixelSize: Style.font.body
                             font.bold: true
@@ -3934,21 +4113,21 @@ Panel {
                             spacing: Style.space(6)
                             Repeater {
                                 model: [
-                                    { key: "buy", label: "Buy Shares", activeBg: "#a6e3a1", idleBg: "#1b2e24", idleFg: "#a6e3a1" },
-                                    { key: "sell", label: "Sell Shares", activeBg: "#f38ba8", idleBg: "#2d1d24", idleFg: "#f38ba8" }
+                                    { key: "buy", label: "Buy Shares", activeBg: root.thGain, idleBg: "#1b2e24", idleFg: root.thGain },
+                                    { key: "sell", label: "Sell Shares", activeBg: root.thLoss, idleBg: root.thLossBg, idleFg: root.thLoss }
                                 ]
                                 delegate: Rectangle {
                                     width: (manualCol.width - Style.space(6)) / 2
                                     height: modeLabel.implicitHeight + Style.space(6)
                                     radius: 4
                                     color: root.manualMode === modelData.key ? modelData.activeBg : modelData.idleBg
-                                    border.color: root.manualMode === modelData.key ? modelData.activeBg : "#45475a"
+                                    border.color: root.manualMode === modelData.key ? modelData.activeBg : root.thBorderStrong
                                     border.width: 1
                                     Text {
                                         id: modeLabel
                                         anchors.centerIn: parent
                                         text: modelData.label
-                                        color: root.manualMode === modelData.key ? "#1e1e2e" : modelData.idleFg
+                                        color: root.manualMode === modelData.key ? root.thOnSecondary : modelData.idleFg
                                         font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                         font.pixelSize: Style.font.small || Style.font.body
                                         font.bold: true
@@ -3981,11 +4160,11 @@ Panel {
 
                             Rectangle {
                                 visible: Boolean(parent.symQ && (parent.symQ.optimal_limit || parent.symQ.limit_price || parent.symQ.price))
-                                width: optChipTxt.implicitWidth + 10; height: Style.space(18); radius: 4; color: "#1b2e33"; border.color: "#89dceb"; border.width: 1
+                                width: optChipTxt.implicitWidth + 10; height: Style.space(18); radius: 4; color: root.thAccentBg; border.color: root.thInfo; border.width: 1
                                 Text {
                                     id: optChipTxt; anchors.centerIn: parent
                                     text: "Optimal Limit $" + Number((parent.parent.symQ && (parent.parent.symQ.optimal_limit || parent.parent.symQ.limit_price || parent.parent.symQ.price)) || 0).toFixed(4)
-                                    color: "#89dceb"; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true
+                                    color: root.thInfo; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true
                                 }
                                 MouseArea {
                                     anchors.fill: parent; cursorShape: Qt.PointingHandCursor
@@ -4002,8 +4181,8 @@ Panel {
                             Repeater {
                                 model: [25, 50, 100]
                                 delegate: Rectangle {
-                                    width: szChipTxt.implicitWidth + 10; height: Style.space(18); radius: 4; color: "#313244"
-                                    Text { id: szChipTxt; anchors.centerIn: parent; text: "$" + modelData; color: "#cdd6f4"; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
+                                    width: szChipTxt.implicitWidth + 10; height: Style.space(18); radius: 4; color: root.thBgElevated
+                                    Text { id: szChipTxt; anchors.centerIn: parent; text: "$" + modelData; color: root.thTextPrimary; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
                                     MouseArea {
                                         anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                                         onClicked: {
@@ -4025,18 +4204,18 @@ Panel {
                             visible: root.manualMode === "buy"
                             spacing: Style.space(4)
 
-                            Text { text: "Strategy:"; color: "#6c7086"; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; height: Style.space(18); verticalAlignment: Text.AlignVCenter }
+                            Text { text: "Strategy:"; color: root.thTextDim; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; height: Style.space(18); verticalAlignment: Text.AlignVCenter }
 
                             Repeater {
                                 model: [
-                                    { key: "auto", label: "Automatic", col: "#89b4fa" },
-                                    { key: "core", label: "Core Hold", col: "#a6e3a1" },
-                                    { key: "swing", label: "Swing Trade", col: "#cba6f7" }
+                                    { key: "auto", label: "Automatic", col: root.thAccent },
+                                    { key: "core", label: "Core Hold", col: root.thGain },
+                                    { key: "swing", label: "Swing Trade", col: root.thSecondary }
                                 ]
                                 delegate: Rectangle {
                                     width: bhTxt.implicitWidth + 10; height: Style.space(18); radius: 4
-                                    color: root.buyHorizonTag === modelData.key ? modelData.col : "#313244"
-                                    Text { id: bhTxt; anchors.centerIn: parent; text: modelData.label; color: root.buyHorizonTag === modelData.key ? "#1e1e2e" : "#cdd6f4"; font.pixelSize: 9; font.bold: true }
+                                    color: root.buyHorizonTag === modelData.key ? modelData.col : root.thBgElevated
+                                    Text { id: bhTxt; anchors.centerIn: parent; text: modelData.label; color: root.buyHorizonTag === modelData.key ? root.thOnSecondary : root.thTextPrimary; font.pixelSize: 9; font.bold: true }
                                     MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.buyHorizonTag = modelData.key }
                                 }
                             }
@@ -4046,12 +4225,12 @@ Panel {
                                 property string effTag: root.buyHorizonTag !== "auto" ? root.buyHorizonTag : (root.effectiveTradingGoal() === "long" ? "core" : "swing")
                                 visible: root.symText.trim().length > 0
                                 width: grdTxt.implicitWidth + 10; height: Style.space(18); radius: 4
-                                color: effTag === "swing" ? "#2b261d" : "#1f3a27"
-                                border.color: effTag === "swing" ? "#f9e2af" : "#a6e3a1"; border.width: 1
+                                color: effTag === "swing" ? root.thWarnBg : root.thGainBg
+                                border.color: effTag === "swing" ? root.thWarn : root.thGain; border.width: 1
                                 Text {
                                     id: grdTxt; anchors.centerIn: parent
                                     text: parent.effTag === "swing" ? "🛡 7% Trailing Stop" : "🎯 25% Profit Target"
-                                    color: parent.effTag === "swing" ? "#f9e2af" : "#a6e3a1"
+                                    color: parent.effTag === "swing" ? root.thWarn : root.thGain
                                     font.pixelSize: 9; font.bold: true
                                 }
                                 MouseArea {
@@ -4078,15 +4257,15 @@ Panel {
                             width: parent.width * 0.25
                             height: Style.space(26)
                             radius: 4
-                            color: "#313244"
-                            border.color: symbolInput.activeFocus ? "#89b4fa" : "#45475a"
+                            color: root.thBgElevated
+                            border.color: symbolInput.activeFocus ? root.thAccent : root.thBorderStrong
                             border.width: 1
 
                             TextInput {
                                 id: symbolInput
                                 anchors.fill: parent
                                 anchors.margins: Style.space(5)
-                                color: "#cdd6f4"
+                                color: root.thTextPrimary
                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                 font.pixelSize: Style.font.body
                                 verticalAlignment: TextInput.AlignVCenter
@@ -4105,7 +4284,7 @@ Panel {
                                     anchors.fill: parent
                                     verticalAlignment: Text.AlignVCenter
                                     text: "Symbol"
-                                    color: "#6c7086"
+                                    color: root.thTextDim
                                     font: symbolInput.font
                                     visible: !symbolInput.text && !symbolInput.activeFocus
                                 }
@@ -4116,15 +4295,15 @@ Panel {
                             width: parent.width * 0.22
                             height: Style.space(26)
                             radius: 4
-                            color: "#313244"
-                            border.color: sharesInput.activeFocus ? "#89b4fa" : "#45475a"
+                            color: root.thBgElevated
+                            border.color: sharesInput.activeFocus ? root.thAccent : root.thBorderStrong
                             border.width: 1
 
                             TextInput {
                                 id: sharesInput
                                 anchors.fill: parent
                                 anchors.margins: Style.space(5)
-                                color: "#cdd6f4"
+                                color: root.thTextPrimary
                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                 font.pixelSize: Style.font.body
                                 verticalAlignment: TextInput.AlignVCenter
@@ -4147,7 +4326,7 @@ Panel {
                                     anchors.fill: parent
                                     verticalAlignment: Text.AlignVCenter
                                     text: "Shares"
-                                    color: "#6c7086"
+                                    color: root.thTextDim
                                     font: sharesInput.font
                                     visible: !sharesInput.text && !sharesInput.activeFocus
                                 }
@@ -4158,15 +4337,15 @@ Panel {
                             width: parent.width * 0.27
                             height: Style.space(26)
                             radius: 4
-                            color: "#313244"
-                            border.color: priceInput.activeFocus ? "#89b4fa" : "#45475a"
+                            color: root.thBgElevated
+                            border.color: priceInput.activeFocus ? root.thAccent : root.thBorderStrong
                             border.width: 1
 
                             TextInput {
                                 id: priceInput
                                 anchors.fill: parent
                                 anchors.margins: Style.space(5)
-                                color: "#cdd6f4"
+                                color: root.thTextPrimary
                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                 font.pixelSize: Style.font.body
                                 verticalAlignment: TextInput.AlignVCenter
@@ -4186,7 +4365,7 @@ Panel {
                                     anchors.fill: parent
                                     verticalAlignment: Text.AlignVCenter
                                     text: "Price $"
-                                    color: "#6c7086"
+                                    color: root.thTextDim
                                     font: priceInput.font
                                     visible: !priceInput.text && !priceInput.activeFocus
                                 }
@@ -4197,12 +4376,12 @@ Panel {
                             width: parent.width * 0.26 - Style.space(18)
                             height: Style.space(26)
                             radius: 4
-                            color: (manualProc.running || dcaProc.running) ? "#45475a" : (root.manualMode === "sell" ? "#f38ba8" : "#a6e3a1")
+                            color: (manualProc.running || dcaProc.running) ? root.thBorderStrong : (root.manualMode === "sell" ? root.thLoss : root.thGain)
 
                             Text {
                                 anchors.centerIn: parent
                                 text: (manualProc.running || dcaProc.running) ? "Saving..." : (root.manualMode === "sell" ? "Save Sell" : "Save Buy")
-                                color: "#1e1e2e"
+                                color: root.manualMode === "sell" ? root.thOnAccent : root.thOnSecondary
                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                 font.pixelSize: Style.font.small || Style.font.body
                                 font.bold: true
@@ -4238,8 +4417,8 @@ Panel {
                         visible: (root.manualMode === "buy" || root.manualMode === "sell") && estTotal > 0
                         height: preImpCol.implicitHeight + Style.space(8)
                         radius: 5
-                        color: "#11111b"
-                        border.color: (root.manualMode === "buy" && postWeightPct > capPct) ? "#f9e2af" : "#313244"
+                        color: root.thBgSubtle
+                        border.color: (root.manualMode === "buy" && postWeightPct > capPct) ? root.thWarn : root.thBgElevated
                         border.width: 1
 
                         Column {
@@ -4276,13 +4455,13 @@ Panel {
                                 Text {
                                     width: parent.width * 0.58
                                     text: "Gross " + preImpCol.curPref + preImpRect.estTotal.toFixed(2) + (preImpCol.estFees > 0 ? (" + " + preImpCol.estFees.toFixed(2) + " fee = Net " + preImpCol.curPref + preImpCol.netTotal.toFixed(2)) : "")
-                                    color: "#cdd6f4"; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true; elide: Text.ElideRight
+                                    color: root.thTextPrimary; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true; elide: Text.ElideRight
                                 }
                                 Text {
                                     width: parent.width * 0.42; horizontalAlignment: Text.AlignRight
                                     visible: root.manualMode === "buy"
                                     text: "Weight: " + preImpRect.postWeightPct.toFixed(0) + "% (Cap " + preImpRect.capPct.toFixed(0) + "%)"
-                                    color: preImpRect.postWeightPct > preImpRect.capPct ? "#f9e2af" : "#a6e3a1"
+                                    color: preImpRect.postWeightPct > preImpRect.capPct ? root.thWarn : root.thGain
                                     font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true
                                 }
                             }
@@ -4290,20 +4469,20 @@ Panel {
                                 width: parent.width
                                 visible: preImpCol.estFees > 0 && preImpRect.estTotal > 0
                                 text: "Receipt: Brokerage " + preImpCol.brk.toFixed(2) + " • VAT " + preImpCol.vat.toFixed(2) + " • Platform/SECZ " + (preImpCol.plt + preImpCol.secz).toFixed(2) + (preImpCol.stmp > 0 ? (" • Stamp Duty " + preImpCol.stmp.toFixed(2)) : "") + (preImpCol.cgt > 0 ? (" • CGT " + preImpCol.cgt.toFixed(2)) : "")
-                                color: "#a6adc8"; font.pixelSize: 8; elide: Text.ElideRight
+                                color: root.thTextMuted; font.pixelSize: 8; elide: Text.ElideRight
                             }
                             Item {
                                 width: parent.width; height: 5; visible: root.manualMode === "buy"
                                 Rectangle {
-                                    anchors.fill: parent; radius: 2.5; color: "#313244"
+                                    anchors.fill: parent; radius: 2.5; color: root.thBgElevated
                                     Rectangle {
                                         width: Math.min(1, preImpRect.postWeightPct / 100.0) * parent.width
                                         height: parent.height; radius: 2.5
-                                        color: preImpRect.postWeightPct > preImpRect.capPct ? "#f9e2af" : "#a6e3a1"
+                                        color: preImpRect.postWeightPct > preImpRect.capPct ? root.thWarn : root.thGain
                                     }
                                     Rectangle {
                                         x: Math.min(parent.width - 2, (preImpRect.capPct / 100.0) * parent.width)
-                                        y: -1; width: 1.5; height: 7; color: "#f38ba8"
+                                        y: -1; width: 1.5; height: 7; color: root.thLoss
                                     }
                                 }
                             }
@@ -4318,15 +4497,15 @@ Panel {
                             width: parent.width - calToggleBtn.width - (clearDateBtn.visible ? clearDateBtn.width + Style.space(4) : 0) - Style.space(4)
                             height: Style.space(26)
                             radius: 4
-                            color: "#313244"
-                            border.color: dateInput.activeFocus ? "#89b4fa" : "#45475a"
+                            color: root.thBgElevated
+                            border.color: dateInput.activeFocus ? root.thAccent : root.thBorderStrong
                             border.width: 1
 
                             TextInput {
                                 id: dateInput
                                 anchors.fill: parent
                                 anchors.margins: Style.space(5)
-                                color: "#cdd6f4"
+                                color: root.thTextPrimary
                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                 font.pixelSize: Style.font.body
                                 verticalAlignment: TextInput.AlignVCenter
@@ -4346,7 +4525,7 @@ Panel {
                                     anchors.fill: parent
                                     verticalAlignment: Text.AlignVCenter
                                     text: "Trade Date (blank = Today)"
-                                    color: "#6c7086"
+                                    color: root.thTextDim
                                     font: dateInput.font
                                     visible: !dateInput.text && !dateInput.activeFocus
                                 }
@@ -4359,13 +4538,13 @@ Panel {
                             width: Style.space(26)
                             height: Style.space(26)
                             radius: 4
-                            color: "#313244"
-                            border.color: "#45475a"
+                            color: root.thBgElevated
+                            border.color: root.thBorderStrong
                             border.width: 1
                             Text {
                                 anchors.centerIn: parent
                                 text: "×"
-                                color: "#f38ba8"
+                                color: root.thLoss
                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                 font.pixelSize: Style.font.body
                                 font.bold: true
@@ -4385,14 +4564,14 @@ Panel {
                             width: calBtnTxt.implicitWidth + Style.space(14)
                             height: Style.space(26)
                             radius: 4
-                            color: root.calendarOpen ? "#89b4fa" : "#313244"
-                            border.color: root.calendarOpen ? "#89b4fa" : "#45475a"
+                            color: root.calendarOpen ? root.thAccent : root.thBgElevated
+                            border.color: root.calendarOpen ? root.thAccent : root.thBorderStrong
                             border.width: 1
                             Text {
                                 id: calBtnTxt
                                 anchors.centerIn: parent
                                 text: root.calendarOpen ? "Calendar ▴" : "Calendar ▾"
-                                color: root.calendarOpen ? "#1e1e2e" : "#cdd6f4"
+                                color: root.calendarOpen ? root.thOnAccent : root.thTextPrimary
                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                 font.pixelSize: Style.font.small || Style.font.body
                                 font.bold: true
@@ -4414,8 +4593,8 @@ Panel {
                         width: parent.width
                         height: calInnerCol.implicitHeight + Style.space(12)
                         radius: 6
-                        color: "#11111b"
-                        border.color: "#45475a"
+                        color: root.thBgSubtle
+                        border.color: root.thBorderStrong
                         border.width: 1
 
                         Column {
@@ -4438,14 +4617,14 @@ Panel {
                                         width: (calInnerCol.width - Style.space(4) * 3) / 4
                                         height: presetTxt.implicitHeight + Style.space(4)
                                         radius: 4
-                                        color: "#313244"
-                                        border.color: "#45475a"
+                                        color: root.thBgElevated
+                                        border.color: root.thBorderStrong
                                         border.width: 1
                                         Text {
                                             id: presetTxt
                                             anchors.centerIn: parent
                                             text: modelData.label
-                                            color: "#89b4fa"
+                                            color: root.thAccent
                                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                             font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
                                             font.bold: true
@@ -4464,13 +4643,13 @@ Panel {
                                 spacing: Style.space(4)
 
                                 Rectangle {
-                                    width: Style.space(24); height: Style.space(22); radius: 4; color: "#1e1e2e"
-                                    Text { anchors.centerIn: parent; text: "«"; color: "#a6adc8"; font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.small || Style.font.body; font.bold: true }
+                                    width: Style.space(24); height: Style.space(22); radius: 4; color: root.thBgSubtle
+                                    Text { anchors.centerIn: parent; text: "«"; color: root.thTextMuted; font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.small || Style.font.body; font.bold: true }
                                     MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.calYear = root.calYear - 1 }
                                 }
                                 Rectangle {
-                                    width: Style.space(24); height: Style.space(22); radius: 4; color: "#1e1e2e"
-                                    Text { anchors.centerIn: parent; text: "‹"; color: "#cdd6f4"; font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.small || Style.font.body; font.bold: true }
+                                    width: Style.space(24); height: Style.space(22); radius: 4; color: root.thBgSubtle
+                                    Text { anchors.centerIn: parent; text: "‹"; color: root.thTextPrimary; font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.small || Style.font.body; font.bold: true }
                                     MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.shiftMonth(-1) }
                                 }
                                 Text {
@@ -4479,19 +4658,19 @@ Panel {
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
                                     text: root.monthLabel(root.calYear, root.calMonth)
-                                    color: "#cdd6f4"
+                                    color: root.thTextPrimary
                                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                     font.pixelSize: Style.font.small || Style.font.body
                                     font.bold: true
                                 }
                                 Rectangle {
-                                    width: Style.space(24); height: Style.space(22); radius: 4; color: "#1e1e2e"
-                                    Text { anchors.centerIn: parent; text: "›"; color: "#cdd6f4"; font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.small || Style.font.body; font.bold: true }
+                                    width: Style.space(24); height: Style.space(22); radius: 4; color: root.thBgSubtle
+                                    Text { anchors.centerIn: parent; text: "›"; color: root.thTextPrimary; font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.small || Style.font.body; font.bold: true }
                                     MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.shiftMonth(1) }
                                 }
                                 Rectangle {
-                                    width: Style.space(24); height: Style.space(22); radius: 4; color: "#1e1e2e"
-                                    Text { anchors.centerIn: parent; text: "»"; color: "#a6adc8"; font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.small || Style.font.body; font.bold: true }
+                                    width: Style.space(24); height: Style.space(22); radius: 4; color: root.thBgSubtle
+                                    Text { anchors.centerIn: parent; text: "»"; color: root.thTextMuted; font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.small || Style.font.body; font.bold: true }
                                     MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.calYear = root.calYear + 1 }
                                 }
                             }
@@ -4506,7 +4685,7 @@ Panel {
                                         width: (calInnerCol.width - 12) / 7
                                         horizontalAlignment: Text.AlignHCenter
                                         text: modelData
-                                        color: "#6c7086"
+                                        color: root.thTextDim
                                         font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                         font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
                                         font.bold: true
@@ -4525,14 +4704,14 @@ Panel {
                                         width: (calInnerCol.width - 12) / 7
                                         height: Style.space(21)
                                         radius: 4
-                                        color: modelData.day === 0 ? "transparent" : (modelData.isSelected ? "#89b4fa" : (modelData.isToday ? "#313244" : "#1e1e2e"))
-                                        border.color: modelData.isToday && !modelData.isSelected ? "#a6e3a1" : "transparent"
+                                        color: modelData.day === 0 ? "transparent" : (modelData.isSelected ? root.thAccent : (modelData.isToday ? root.thBgElevated : root.thOnAccent))
+                                        border.color: modelData.isToday && !modelData.isSelected ? root.thGain : "transparent"
                                         border.width: modelData.isToday && !modelData.isSelected ? 1 : 0
                                         Text {
                                             anchors.centerIn: parent
                                             visible: modelData.day > 0
                                             text: modelData.day > 0 ? String(modelData.day) : ""
-                                            color: modelData.isSelected ? "#1e1e2e" : (modelData.isFuture ? "#45475a" : (modelData.isToday ? "#a6e3a1" : "#cdd6f4"))
+                                            color: modelData.isSelected ? root.thOnAccent : (modelData.isFuture ? root.thBorderStrong : (modelData.isToday ? root.thGain : root.thTextPrimary))
                                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                             font.pixelSize: Style.font.small ? Style.font.small - 1 : 10
                                             font.bold: modelData.isSelected || modelData.isToday
@@ -4556,7 +4735,7 @@ Panel {
                         width: parent.width
                         visible: root.statusMessage.length > 0
                         text: root.statusMessage
-                        color: root.statusError ? "#f38ba8" : "#a6e3a1"
+                        color: root.statusError ? root.thLoss : root.thGain
                         font.family: root.bar ? root.bar.fontFamily : Style.font.family
                         font.pixelSize: Style.font.small || Style.font.body
                         wrapMode: Text.WordWrap
@@ -4589,14 +4768,14 @@ Panel {
                                 width: sugText.implicitWidth + Style.space(10)
                                 height: sugText.implicitHeight + Style.space(4)
                                 radius: 4
-                                color: "#313244"
-                                border.color: String(modelData).slice(-3) === ".ZW" ? "#f9e2af" : "#45475a"
+                                color: root.thBgElevated
+                                border.color: String(modelData).slice(-3) === ".ZW" ? root.thWarn : root.thBorderStrong
                                 border.width: 1
                                 Text {
                                     id: sugText
                                     anchors.centerIn: parent
                                     text: modelData
-                                    color: String(modelData).slice(-3) === ".ZW" ? "#f9e2af" : "#89b4fa"
+                                    color: String(modelData).slice(-3) === ".ZW" ? root.thWarn : root.thAccent
                                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                     font.pixelSize: Style.font.small || Style.font.body
                                 }
@@ -4608,6 +4787,63 @@ Panel {
                             }
                         }
                     }
+                    }
+                }
+
+                // Full Screen Overview Right Footer: Selected Security Specs, Circuit Breakers & Fee Schedule
+                Rectangle {
+                    id: ovDepthFeesCard
+                    property var selQ: root.activeQuote()
+                    width: parent.width
+                    visible: root.fullPageMode && Boolean(selQ)
+                    height: ovDfCol.implicitHeight + Style.space(14)
+                    radius: 8; color: root.thBgCard; border.color: root.thBorder; border.width: 1
+                    Column {
+                        id: ovDfCol
+                        anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(8) }
+                        spacing: Style.space(4)
+                        Row {
+                            width: parent.width
+                            Text {
+                                width: parent.width * 0.62
+                                text: root.chartSymbol + " • Market Depth & Fee Specs"
+                                color: root.thInfo; font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.body; font.bold: true; elide: Text.ElideRight
+                            }
+                            Text {
+                                width: parent.width * 0.38; horizontalAlignment: Text.AlignRight
+                                text: String((ovDepthFeesCard.selQ || ({})).security_type || "EQUITY") + (((ovDepthFeesCard.selQ || ({})).isin) ? (" • " + ovDepthFeesCard.selQ.isin) : "")
+                                color: root.thSecondary; font.pixelSize: 8; font.bold: true; elide: Text.ElideLeft
+                            }
+                        }
+                        Row {
+                            id: ovDfDepthRow
+                            width: parent.width
+                            property var sq: (ovDepthFeesCard.selQ || ({}))
+                            property string curC: String(sq.currency || "USD")
+                            Text { width: parent.width * 0.34; text: "Bid: " + root.fmtPrice(ovDfDepthRow.sq.best_bid, ovDfDepthRow.curC) + " (" + root.fmtVol(ovDfDepthRow.sq.bid_volume || 0) + ")"; color: root.thGain; font.pixelSize: 9; elide: Text.ElideRight }
+                            Text { width: parent.width * 0.34; text: "Ask: " + root.fmtPrice(ovDfDepthRow.sq.best_ask, ovDfDepthRow.curC) + " (" + root.fmtVol(ovDfDepthRow.sq.ask_volume || 0) + ")"; color: root.thLoss; font.pixelSize: 9; elide: Text.ElideRight }
+                            Text { width: parent.width * 0.32; horizontalAlignment: Text.AlignRight; text: "Spread: " + (ovDfDepthRow.sq.spread_pct !== undefined && ovDfDepthRow.sq.spread_pct !== null ? (Number(ovDfDepthRow.sq.spread_pct).toFixed(2) + "%") : "--"); color: root.thWarn; font.pixelSize: 9; font.bold: true }
+                        }
+                        Rectangle {
+                            id: ovDfBarBg
+                            property real bv: Number((ovDepthFeesCard.selQ || ({})).bid_volume || 0)
+                            property real av: Number((ovDepthFeesCard.selQ || ({})).ask_volume || 0)
+                            width: parent.width; height: 6; radius: 3; color: root.thLossBg
+                            visible: (bv + av) > 0
+                            Rectangle {
+                                width: (ovDfBarBg.bv + ovDfBarBg.av) > 0 ? ((ovDfBarBg.bv / (ovDfBarBg.bv + ovDfBarBg.av)) * parent.width) : (parent.width * 0.5)
+                                height: parent.height; radius: 3; color: root.thGain
+                            }
+                        }
+                        Text {
+                            id: ovDfCircTxt
+                            width: parent.width; elide: Text.ElideRight; font.pixelSize: 8; color: root.thTextMuted
+                            property var sq2: (ovDepthFeesCard.selQ || ({}))
+                            property string c2: String(sq2.currency || "USD")
+                            text: (sq2.lower_limit && sq2.upper_limit)
+                                ? ("Circuit Limits: Lower " + root.fmtPrice(sq2.lower_limit, c2) + " — Upper " + root.fmtPrice(sq2.upper_limit, c2) + " • Statutory Round-Trip: " + (c2 === "ZWG" ? "ZSE 4.38%" : "VFEX 2.08%"))
+                                : ("Statutory Broker Round-Trip: " + (c2 === "ZWG" ? "ZSE 4.38% (inc. CGT & levies)" : "VFEX 2.08% (Morgan & Co)"))
+                        }
                     }
                 }
                     }
@@ -4624,8 +4860,8 @@ Panel {
                         width: parent.width
                         height: scrCtrlCol.implicitHeight + Style.space(12)
                         radius: 8
-                        color: "#181825"
-                        border.color: "#313244"
+                        color: root.thBgCard
+                        border.color: root.thBorder
                         border.width: 1
 
                         Column {
@@ -4641,20 +4877,20 @@ Panel {
                                     width: parent.width * 0.36
                                     height: Style.space(26)
                                     radius: 4
-                                    color: "#313244"
-                                    border.color: scrSearchInput.activeFocus ? "#89b4fa" : "#45475a"
+                                    color: root.thBgElevated
+                                    border.color: scrSearchInput.activeFocus ? root.thAccent : root.thBorderStrong
                                     border.width: 1
                                     TextInput {
                                         id: scrSearchInput
                                         anchors.fill: parent; anchors.margins: Style.space(5)
-                                        color: "#cdd6f4"
+                                        color: root.thTextPrimary
                                         font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                         font.pixelSize: Style.font.body
                                         verticalAlignment: TextInput.AlignVCenter; clip: true
                                         Component.onCompleted: text = root.screenerQuery
                                         onTextChanged: if (root.screenerQuery !== text) root.screenerQuery = text
                                         Connections { target: root; function onScreenerQueryChanged() { if (scrSearchInput.text !== root.screenerQuery) scrSearchInput.text = root.screenerQuery } }
-                                        Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Search 56 VFEX + ZSE..."; color: "#6c7086"; font: scrSearchInput.font; visible: !scrSearchInput.text && !scrSearchInput.activeFocus }
+                                        Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Search 56 VFEX + ZSE..."; color: root.thTextDim; font: scrSearchInput.font; visible: !scrSearchInput.text && !scrSearchInput.activeFocus }
                                     }
                                 }
 
@@ -4669,8 +4905,8 @@ Panel {
                                         ]
                                         delegate: Rectangle {
                                             width: vmTxt.implicitWidth + 12; height: Style.space(24); radius: 4
-                                            color: root.screenerViewMode === modelData.key ? "#a6e3a1" : "#313244"
-                                            Text { id: vmTxt; anchors.centerIn: parent; text: modelData.label; color: root.screenerViewMode === modelData.key ? "#1e1e2e" : "#cdd6f4"; font.pixelSize: Style.font.small ? Style.font.small - 1 : 10; font.bold: true }
+                                            color: root.screenerViewMode === modelData.key ? root.thGain : root.thBgElevated
+                                            Text { id: vmTxt; anchors.centerIn: parent; text: modelData.label; color: root.screenerViewMode === modelData.key ? root.thOnSecondary : root.thTextPrimary; font.pixelSize: Style.font.small ? Style.font.small - 1 : 10; font.bold: true }
                                             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.screenerViewMode = modelData.key }
                                         }
                                     }
@@ -4692,8 +4928,8 @@ Panel {
                                         ]
                                         delegate: Rectangle {
                                             width: fltLbl.implicitWidth + Style.space(8); height: Style.space(20); radius: 4
-                                            color: root.screenerFilter === modelData.key ? "#89b4fa" : "#313244"
-                                            Text { id: fltLbl; anchors.centerIn: parent; text: modelData.label; color: root.screenerFilter === modelData.key ? "#1e1e2e" : "#cdd6f4"; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: root.screenerFilter === modelData.key }
+                                            color: root.screenerFilter === modelData.key ? root.thAccent : root.thBgElevated
+                                            Text { id: fltLbl; anchors.centerIn: parent; text: modelData.label; color: root.screenerFilter === modelData.key ? root.thOnSecondary : root.thTextPrimary; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: root.screenerFilter === modelData.key }
                                             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.screenerFilter = modelData.key }
                                         }
                                     }
@@ -4703,7 +4939,7 @@ Panel {
                             Flow {
                                 width: parent.width
                                 spacing: Style.space(4)
-                                Text { text: "Sort:"; color: "#6c7086"; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; height: Style.space(18); verticalAlignment: Text.AlignVCenter }
+                                Text { text: "Sort:"; color: root.thTextDim; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; height: Style.space(18); verticalAlignment: Text.AlignVCenter }
                                 Repeater {
                                     model: [
                                         { key: "signal", label: "Signal" },
@@ -4715,12 +4951,12 @@ Panel {
                                     ]
                                     delegate: Rectangle {
                                         width: srtLbl.implicitWidth + 10; height: Style.space(18); radius: 3
-                                        color: root.screenerSortKey === modelData.key ? "#242436" : "transparent"
-                                        border.color: root.screenerSortKey === modelData.key ? "#89b4fa" : "#313244"; border.width: 1
+                                        color: root.screenerSortKey === modelData.key ? root.thBgActiveTab : "transparent"
+                                        border.color: root.screenerSortKey === modelData.key ? root.thAccent : root.thBgElevated; border.width: 1
                                         Text {
                                             id: srtLbl; anchors.centerIn: parent
                                             text: modelData.label + (root.screenerSortKey === modelData.key ? (root.screenerSortDesc ? " ↓" : " ↑") : "")
-                                            color: root.screenerSortKey === modelData.key ? "#89b4fa" : "#a6adc8"
+                                            color: root.screenerSortKey === modelData.key ? root.thAccent : root.thTextMuted
                                             font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                         }
                                         MouseArea {
@@ -4734,7 +4970,7 @@ Panel {
                                 }
                                 Text {
                                     text: (root.filteredScreener()).length + " counters • ★ Signal • ● Owned • ◎ Watchlist"
-                                    color: "#6c7086"; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
+                                    color: root.thTextDim; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                     height: Style.space(18); verticalAlignment: Text.AlignVCenter
                                 }
                             }
@@ -4747,8 +4983,8 @@ Panel {
                             ? Math.max(Style.space(520), panel.availableCardHeight - Style.space(220))
                             : (root.wideLayout ? Style.space(430) : Style.space(340))
                         radius: 8
-                        color: "#181825"
-                        border.color: "#313244"
+                        color: root.thBgCard
+                        border.color: root.thBorder
                         border.width: 1
                         clip: true
 
@@ -4773,7 +5009,7 @@ Panel {
                                         height: Style.space(66)
                                         radius: 6
                                         color: root.heatmapTileColor(modelData.change_pct)
-                                        border.color: hmMouse.containsMouse ? "#89b4fa" : (Number(modelData.signal_score || 0) >= 35 ? "#a6e3a1" : "#313244")
+                                        border.color: hmMouse.containsMouse ? root.thAccent : (Number(modelData.signal_score || 0) >= 35 ? root.thGain : root.thBgElevated)
                                         border.width: Number(modelData.signal_score || 0) >= 35 ? 1.5 : 1
 
                                         MouseArea {
@@ -4797,7 +5033,7 @@ Panel {
                                                 Text {
                                                     width: parent.width - watchPillCorner.width - 2
                                                     text: modelData.symbol + (Number(modelData.signal_score || 0) > 0 ? "★" : "") + (root.isOwnedSymbol(modelData.symbol) ? "●" : "")
-                                                    color: modelData.currency === "ZWG" ? "#f9e2af" : "#cdd6f4"
+                                                    color: modelData.currency === "ZWG" ? root.thWarn : root.thTextPrimary
                                                     font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                                     font.pixelSize: Style.font.small || Style.font.body
                                                     font.bold: true
@@ -4809,15 +5045,15 @@ Panel {
                                                     width: cornerTags.implicitWidth + 6
                                                     height: cornerTags.implicitHeight + 2
                                                     radius: 3
-                                                    color: root.isWatchedSymbol(modelData.symbol) ? "#1e2e4a" : "#242436"
-                                                    border.color: root.isWatchedSymbol(modelData.symbol) ? "#89b4fa" : "#45475a"
+                                                    color: root.isWatchedSymbol(modelData.symbol) ? root.thAccentBg : root.thBgActiveTab
+                                                    border.color: root.isWatchedSymbol(modelData.symbol) ? root.thAccent : root.thBorderStrong
                                                     border.width: 1
                                                     anchors.verticalCenter: parent.verticalCenter
                                                     Text {
                                                         id: cornerTags
                                                         anchors.centerIn: parent
                                                         text: root.isWatchedSymbol(modelData.symbol) ? "◎" : "+"
-                                                        color: root.isWatchedSymbol(modelData.symbol) ? "#89b4fa" : "#a6adc8"
+                                                        color: root.isWatchedSymbol(modelData.symbol) ? root.thAccent : root.thTextMuted
                                                         font.pixelSize: 9
                                                         font.bold: true
                                                     }
@@ -4840,14 +5076,14 @@ Panel {
                                                     if (c === null || c === undefined) return "0.0%"
                                                     return (Number(c) >= 0 ? "+" : "") + Number(c).toFixed(1) + "%"
                                                 }
-                                                color: Number(modelData.change_pct || 0) > 0 ? "#a6e3a1" : (Number(modelData.change_pct || 0) < 0 ? "#f38ba8" : "#a6adc8")
+                                                color: Number(modelData.change_pct || 0) > 0 ? root.thGain : (Number(modelData.change_pct || 0) < 0 ? root.thLoss : root.thTextMuted)
                                                 font.pixelSize: Style.font.body
                                                 font.bold: true
                                             }
                                             Text {
                                                 width: parent.width
                                                 text: root.fmtPrice(modelData.price, modelData.currency)
-                                                color: "#a6adc8"
+                                                color: root.thTextMuted
                                                 font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                                 elide: Text.ElideRight
                                             }
@@ -4859,7 +5095,7 @@ Panel {
                                                     model: 4
                                                     delegate: Rectangle {
                                                         width: (parent.width - 6) / 4; height: 2.5; radius: 1
-                                                        color: index < parent.liqN ? "#89dceb" : "#313244"
+                                                        color: index < parent.liqN ? root.thInfo : root.thBgElevated
                                                     }
                                                 }
                                             }
@@ -4876,14 +5112,14 @@ Panel {
 
                                 Row {
                                     width: parent.width
-                                    Text { width: parent.width * 0.16; text: "Ticker"; color: "#6c7086"; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
-                                    Text { width: parent.width * 0.13; text: "Price"; color: "#6c7086"; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
-                                    Text { width: parent.width * 0.10; text: "Day Change"; color: "#6c7086"; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
-                                    Text { width: parent.width * 0.21; text: "Bid / Ask Depth"; color: "#6c7086"; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
-                                    Text { width: parent.width * 0.09; text: "Liquidity"; color: "#6c7086"; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
-                                    Text { width: parent.width * 0.09; text: "Strength"; color: "#6c7086"; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
-                                    Text { width: parent.width * 0.11; text: "Signal"; color: "#6c7086"; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
-                                    Text { width: parent.width * 0.11; horizontalAlignment: Text.AlignRight; text: "Watchlist"; color: "#6c7086"; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
+                                    Text { width: parent.width * 0.16; text: "Ticker"; color: root.thTextDim; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
+                                    Text { width: parent.width * 0.13; text: "Price"; color: root.thTextDim; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
+                                    Text { width: parent.width * 0.10; text: "Day Change"; color: root.thTextDim; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
+                                    Text { width: parent.width * 0.21; text: "Bid / Ask Depth"; color: root.thTextDim; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
+                                    Text { width: parent.width * 0.09; text: "Liquidity"; color: root.thTextDim; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
+                                    Text { width: parent.width * 0.09; text: "Strength"; color: root.thTextDim; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
+                                    Text { width: parent.width * 0.11; text: "Signal"; color: root.thTextDim; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
+                                    Text { width: parent.width * 0.11; horizontalAlignment: Text.AlignRight; text: "Watchlist"; color: root.thTextDim; font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true }
                                 }
 
                                 Repeater {
@@ -4892,7 +5128,7 @@ Panel {
                                         width: scrTableCol.width
                                         height: scrRowInner.implicitHeight + Style.space(6)
                                         radius: 4
-                                        color: scrHover.containsMouse ? "#242436" : "#11111b"
+                                        color: scrHover.containsMouse ? root.thBgActiveTab : root.thBgSubtle
                                         MouseArea {
                                             id: scrHover
                                             anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor
@@ -4911,11 +5147,11 @@ Panel {
                                             Column {
                                                 width: parent.width * 0.16
                                                 anchors.verticalCenter: parent.verticalCenter
-                                                Text { text: modelData.symbol; color: modelData.currency === "ZWG" ? "#f9e2af" : "#cdd6f4"; font.pixelSize: Style.font.small ? Style.font.small - 1 : 10; font.bold: true; elide: Text.ElideRight; width: parent.width }
+                                                Text { text: modelData.symbol; color: modelData.currency === "ZWG" ? root.thWarn : root.thTextPrimary; font.pixelSize: Style.font.small ? Style.font.small - 1 : 10; font.bold: true; elide: Text.ElideRight; width: parent.width }
                                                 Text {
                                                     property string st: String(modelData.security_type || "EQUITY")
                                                     text: (modelData.currency === "ZWG" ? "ZSE" : "VFEX") + (st && st !== "EQUITY" ? (" • " + st) : "")
-                                                    color: st !== "EQUITY" ? "#89dceb" : "#6c7086"
+                                                    color: st !== "EQUITY" ? root.thInfo : root.thTextDim
                                                     font.pixelSize: 8
                                                     width: parent.width
                                                     elide: Text.ElideRight
@@ -4924,48 +5160,48 @@ Panel {
                                             Column {
                                                 width: parent.width * 0.13
                                                 anchors.verticalCenter: parent.verticalCenter
-                                                Text { text: root.fmtPrice(modelData.price, modelData.currency); color: "#cdd6f4"; font.pixelSize: Style.font.small ? Style.font.small - 1 : 10; width: parent.width; elide: Text.ElideRight }
-                                                Text { visible: Boolean(modelData.optimal_limit); text: "Limit " + root.fmtPrice(modelData.optimal_limit, modelData.currency); color: "#89dceb"; font.pixelSize: 8; width: parent.width; elide: Text.ElideRight }
+                                                Text { text: root.fmtPrice(modelData.price, modelData.currency); color: root.thTextPrimary; font.pixelSize: Style.font.small ? Style.font.small - 1 : 10; width: parent.width; elide: Text.ElideRight }
+                                                Text { visible: Boolean(modelData.optimal_limit); text: "Limit " + root.fmtPrice(modelData.optimal_limit, modelData.currency); color: root.thInfo; font.pixelSize: 8; width: parent.width; elide: Text.ElideRight }
                                             }
                                             Text {
                                                 width: parent.width * 0.10; anchors.verticalCenter: parent.verticalCenter
                                                 text: (modelData.change_pct !== null && modelData.change_pct !== undefined) ? ((Number(modelData.change_pct) >= 0 ? "+" : "") + Number(modelData.change_pct).toFixed(1) + "%") : "--"
-                                                color: Number(modelData.change_pct || 0) > 0 ? "#a6e3a1" : (Number(modelData.change_pct || 0) < 0 ? "#f38ba8" : "#6c7086")
+                                                color: Number(modelData.change_pct || 0) > 0 ? root.thGain : (Number(modelData.change_pct || 0) < 0 ? root.thLoss : root.thTextDim)
                                                 font.pixelSize: Style.font.small ? Style.font.small - 1 : 10; font.bold: true
                                             }
                                             Column {
                                                 width: parent.width * 0.21; anchors.verticalCenter: parent.verticalCenter; spacing: 2
                                                 Rectangle {
-                                                    width: parent.width * 0.90; height: 5; radius: 2; color: "#3d2229"
+                                                    width: parent.width * 0.90; height: 5; radius: 2; color: root.thLossBg
                                                     Rectangle {
                                                         property real bv: Number(modelData.bid_volume || 0); property real av: Number(modelData.ask_volume || 0)
                                                         width: (bv + av) > 0 ? (bv / (bv + av)) * parent.width : parent.width * 0.5
-                                                        height: parent.height; radius: 2; color: "#a6e3a1"
+                                                        height: parent.height; radius: 2; color: root.thGain
                                                     }
                                                 }
-                                                Text { text: "Bid:" + root.fmtVol(modelData.bid_volume || 0) + " Ask:" + root.fmtVol(modelData.ask_volume || 0); color: "#a6adc8"; font.pixelSize: 8; width: parent.width; elide: Text.ElideRight }
+                                                Text { text: "Bid:" + root.fmtVol(modelData.bid_volume || 0) + " Ask:" + root.fmtVol(modelData.ask_volume || 0); color: root.thTextMuted; font.pixelSize: 8; width: parent.width; elide: Text.ElideRight }
                                             }
                                             Row {
                                                 width: parent.width * 0.09; anchors.verticalCenter: parent.verticalCenter; spacing: 1
                                                 property int lv: Math.round(Number(modelData.liquidity_score || 0) / 25)
-                                                Repeater { model: 4; delegate: Rectangle { width: 4; height: 4; radius: 2; color: index < parent.lv ? "#89dceb" : "#313244" } }
+                                                Repeater { model: 4; delegate: Rectangle { width: 4; height: 4; radius: 2; color: index < parent.lv ? root.thInfo : root.thBgElevated } }
                                             }
                                             Text {
                                                 width: parent.width * 0.09; anchors.verticalCenter: parent.verticalCenter
                                                 text: modelData.rsi14 !== null && modelData.rsi14 !== undefined ? Number(modelData.rsi14).toFixed(0) : "--"
-                                                color: Number(modelData.rsi14 || 50) <= 35 ? "#a6e3a1" : (Number(modelData.rsi14 || 50) >= 68 ? "#f38ba8" : "#a6adc8")
+                                                color: Number(modelData.rsi14 || 50) <= 35 ? root.thGain : (Number(modelData.rsi14 || 50) >= 68 ? root.thLoss : root.thTextMuted)
                                                 font.pixelSize: Style.font.small ? Style.font.small - 2 : 9
                                             }
                                             Text {
                                                 width: parent.width * 0.11; anchors.verticalCenter: parent.verticalCenter
                                                 text: Number(modelData.signal_score || 0) > 0 ? (modelData.signal_action + " " + modelData.signal_score) : (modelData.spread_pct !== null && modelData.spread_pct !== undefined ? (Number(modelData.spread_pct).toFixed(0) + "% spread") : "--")
-                                                color: Number(modelData.signal_score || 0) > 0 ? (modelData.signal_action === "SELL" ? "#f38ba8" : "#a6e3a1") : (modelData.wide_spread ? "#f9e2af" : "#6c7086")
+                                                color: Number(modelData.signal_score || 0) > 0 ? (modelData.signal_action === "SELL" ? root.thLoss : root.thGain) : (modelData.wide_spread ? root.thWarn : root.thTextDim)
                                                 font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: Number(modelData.signal_score || 0) > 0; elide: Text.ElideRight
                                             }
                                             Text {
                                                 width: parent.width * 0.11; horizontalAlignment: Text.AlignRight; anchors.verticalCenter: parent.verticalCenter
                                                 text: root.isWatchedSymbol(modelData.symbol) ? "★ Watching" : "+ Watchlist"
-                                                color: root.isWatchedSymbol(modelData.symbol) ? "#a6e3a1" : "#89b4fa"
+                                                color: root.isWatchedSymbol(modelData.symbol) ? root.thGain : root.thAccent
                                                 font.pixelSize: Style.font.small ? Style.font.small - 2 : 9; font.bold: true; elide: Text.ElideLeft
                                                 MouseArea {
                                                     anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running
@@ -5002,7 +5238,7 @@ Panel {
                         Rectangle {
                             width: root.wideLayout ? (analyticsTabCol.width - Style.space(8)) / 2 : analyticsTabCol.width
                             height: btCol.implicitHeight + Style.space(16)
-                            radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
+                            radius: 8; color: root.thBgCard; border.color: root.thBorder; border.width: 1
 
                             Column {
                                 id: btCol
@@ -5010,7 +5246,7 @@ Panel {
                                 spacing: Style.space(6)
                                 property var bt: root.summaryData.signal_backtest || ({})
 
-                                Text { text: "90-Day Signal Track Record"; color: "#89b4fa"; font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.body; font.bold: true }
+                                Text { text: "90-Day Signal Track Record"; color: root.thAccent; font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.body; font.bold: true }
 
                                 Row {
                                     width: parent.width
@@ -5030,38 +5266,38 @@ Panel {
                                                 var bt = root.summaryData.signal_backtest || ({})
                                                 var wr = Math.max(0, Math.min(100, Number(bt.win_rate_pct || 0)))
                                                 var cx = width / 2, cy = height / 2, r = Math.min(cx, cy) - 6
-                                                ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.strokeStyle = "#313244"; ctx.lineWidth = 8; ctx.stroke()
+                                                ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.strokeStyle = root.thBorder; ctx.lineWidth = 8; ctx.stroke()
                                                 if (wr > 0) {
                                                     ctx.beginPath(); ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + (wr / 100.0) * Math.PI * 2)
-                                                    ctx.strokeStyle = wr >= 55 ? "#a6e3a1" : (wr >= 40 ? "#89b4fa" : "#f9e2af")
+                                                    ctx.strokeStyle = wr >= 55 ? String(root.thGain) : (wr >= 40 ? String(root.thAccent) : String(root.thWarn))
                                                     ctx.lineWidth = 8; ctx.stroke()
                                                 }
                                             }
                                         }
                                         Column {
                                             anchors.centerIn: parent
-                                            Text { anchors.horizontalCenter: parent.horizontalCenter; text: Number(btCol.bt.win_rate_pct || 0).toFixed(0) + "%"; color: "#cdd6f4"; font.pixelSize: Style.font.body; font.bold: true }
-                                            Text { anchors.horizontalCenter: parent.horizontalCenter; text: "WIN"; color: "#6c7086"; font.pixelSize: 8; font.bold: true }
+                                            Text { anchors.horizontalCenter: parent.horizontalCenter; text: Number(btCol.bt.win_rate_pct || 0).toFixed(0) + "%"; color: root.thTextPrimary; font.pixelSize: Style.font.body; font.bold: true }
+                                            Text { anchors.horizontalCenter: parent.horizontalCenter; text: "WIN"; color: root.thTextDim; font.pixelSize: 8; font.bold: true }
                                         }
                                     }
 
                                     Column {
                                         width: parent.width - Style.space(88); spacing: 4; anchors.verticalCenter: parent.verticalCenter
-                                        Text { text: "Signals Tracked: " + (btCol.bt.total_logged || 0) + " (" + (btCol.bt.wins || 0) + " wins)"; color: "#cdd6f4"; font.pixelSize: Style.font.small || Style.font.body }
+                                        Text { text: "Signals Tracked: " + (btCol.bt.total_logged || 0) + " (" + (btCol.bt.wins || 0) + " wins)"; color: root.thTextPrimary; font.pixelSize: Style.font.small || Style.font.body }
                                         Text {
                                             text: "Average Forward Return: " + (Number(btCol.bt.avg_return_pct || 0) >= 0 ? "+" : "") + Number(btCol.bt.avg_return_pct || 0).toFixed(2) + "%"
-                                            color: Number(btCol.bt.avg_return_pct || 0) >= 0 ? "#a6e3a1" : "#f38ba8"
+                                            color: Number(btCol.bt.avg_return_pct || 0) >= 0 ? root.thGain : root.thLoss
                                             font.pixelSize: Style.font.small || Style.font.body; font.bold: true
                                         }
                                         Row {
                                             width: parent.width; spacing: 4
                                             Rectangle {
-                                                width: (parent.width - 4) / 2; height: Style.space(18); radius: 4; color: "#1f3a27"
-                                                Text { anchors.centerIn: parent; text: "CORE: " + Number(btCol.bt.core_win_rate_pct || 0).toFixed(0) + "% (" + (btCol.bt.core_count || 0) + ")"; color: "#a6e3a1"; font.pixelSize: 9; font.bold: true }
+                                                width: (parent.width - 4) / 2; height: Style.space(18); radius: 4; color: root.thGainBg
+                                                Text { anchors.centerIn: parent; text: "CORE: " + Number(btCol.bt.core_win_rate_pct || 0).toFixed(0) + "% (" + (btCol.bt.core_count || 0) + ")"; color: root.thGain; font.pixelSize: 9; font.bold: true }
                                             }
                                             Rectangle {
-                                                width: (parent.width - 4) / 2; height: Style.space(18); radius: 4; color: "#272138"
-                                                Text { anchors.centerIn: parent; text: "SWING: " + Number(btCol.bt.swing_win_rate_pct || 0).toFixed(0) + "% (" + (btCol.bt.swing_count || 0) + ")"; color: "#cba6f7"; font.pixelSize: 9; font.bold: true }
+                                                width: (parent.width - 4) / 2; height: Style.space(18); radius: 4; color: root.thAccentBg
+                                                Text { anchors.centerIn: parent; text: "SWING: " + Number(btCol.bt.swing_win_rate_pct || 0).toFixed(0) + "% (" + (btCol.bt.swing_count || 0) + ")"; color: root.thSecondary; font.pixelSize: 9; font.bold: true }
                                             }
                                         }
                                         Row {
@@ -5070,15 +5306,15 @@ Panel {
                                             Rectangle {
                                                 width: (parent.width - 4) / 2; height: Style.space(28); radius: 4; color: "#1b2e24"
                                                 Column { anchors.centerIn: parent
-                                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Best: " + (btCol.bt.best ? btCol.bt.best.symbol : ""); color: "#a6e3a1"; font.pixelSize: 9; font.bold: true }
-                                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: btCol.bt.best ? ((Number(btCol.bt.best.return_pct) >= 0 ? "+" : "") + Number(btCol.bt.best.return_pct).toFixed(1) + "%") : ""; color: "#cdd6f4"; font.pixelSize: 9 }
+                                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Best: " + (btCol.bt.best ? btCol.bt.best.symbol : ""); color: root.thGain; font.pixelSize: 9; font.bold: true }
+                                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: btCol.bt.best ? ((Number(btCol.bt.best.return_pct) >= 0 ? "+" : "") + Number(btCol.bt.best.return_pct).toFixed(1) + "%") : ""; color: root.thTextPrimary; font.pixelSize: 9 }
                                                 }
                                             }
                                             Rectangle {
-                                                width: (parent.width - 4) / 2; height: Style.space(28); radius: 4; color: "#2d1d24"
+                                                width: (parent.width - 4) / 2; height: Style.space(28); radius: 4; color: root.thLossBg
                                                 Column { anchors.centerIn: parent
-                                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Worst: " + (btCol.bt.worst ? btCol.bt.worst.symbol : ""); color: "#f38ba8"; font.pixelSize: 9; font.bold: true }
-                                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: btCol.bt.worst ? ((Number(btCol.bt.worst.return_pct) >= 0 ? "+" : "") + Number(btCol.bt.worst.return_pct).toFixed(1) + "%") : ""; color: "#cdd6f4"; font.pixelSize: 9 }
+                                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: "Worst: " + (btCol.bt.worst ? btCol.bt.worst.symbol : ""); color: root.thLoss; font.pixelSize: 9; font.bold: true }
+                                                    Text { anchors.horizontalCenter: parent.horizontalCenter; text: btCol.bt.worst ? ((Number(btCol.bt.worst.return_pct) >= 0 ? "+" : "") + Number(btCol.bt.worst.return_pct).toFixed(1) + "%") : ""; color: root.thTextPrimary; font.pixelSize: 9 }
                                                 }
                                             }
                                         }
@@ -5090,24 +5326,24 @@ Panel {
                                     delegate: Row {
                                         width: btCol.width; spacing: Style.space(4)
                                         property real retV: Number(modelData.return_pct || 0)
-                                        Text { width: btCol.width * 0.20; text: modelData.date.slice(5); color: "#6c7086"; font.pixelSize: 9 }
-                                        Text { width: btCol.width * 0.24; text: (modelData.horizon === "CORE" ? "◆" : "⚡") + " " + modelData.action + " " + modelData.symbol; color: modelData.horizon === "CORE" ? "#a6e3a1" : "#cba6f7"; font.pixelSize: 9; font.bold: true; elide: Text.ElideRight }
+                                        Text { width: btCol.width * 0.20; text: modelData.date.slice(5); color: root.thTextDim; font.pixelSize: 9 }
+                                        Text { width: btCol.width * 0.24; text: (modelData.horizon === "CORE" ? "◆" : "⚡") + " " + modelData.action + " " + modelData.symbol; color: modelData.horizon === "CORE" ? root.thGain : root.thSecondary; font.pixelSize: 9; font.bold: true; elide: Text.ElideRight }
                                         Item {
                                             width: btCol.width * 0.36; height: 10
-                                            Rectangle { anchors.verticalCenter: parent.verticalCenter; width: parent.width; height: 5; radius: 2; color: "#313244"
-                                                Rectangle { x: parent.width / 2 - 0.5; y: -1; width: 1; height: 7; color: "#6c7086" }
+                                            Rectangle { anchors.verticalCenter: parent.verticalCenter; width: parent.width; height: 5; radius: 2; color: root.thBgElevated
+                                                Rectangle { x: parent.width / 2 - 0.5; y: -1; width: 1; height: 7; color: root.thTextDim }
                                                 Rectangle {
                                                     property real normW: Math.min(0.5, Math.abs(parent.parent.parent.retV) / 30.0) * parent.width
                                                     x: parent.parent.parent.retV >= 0 ? (parent.width / 2) : (parent.width / 2 - normW)
                                                     width: Math.max(2, normW); height: parent.height; radius: 2
-                                                    color: parent.parent.parent.retV >= 0 ? "#a6e3a1" : "#f38ba8"
+                                                    color: parent.parent.parent.retV >= 0 ? root.thGain : root.thLoss
                                                 }
                                             }
                                         }
                                         Text {
                                             width: btCol.width * 0.20 - Style.space(12); horizontalAlignment: Text.AlignRight
                                             text: (retV >= 0 ? "+" : "") + retV.toFixed(1) + "%"
-                                            color: retV >= 0 ? "#a6e3a1" : "#f38ba8"; font.pixelSize: 9; font.bold: true
+                                            color: retV >= 0 ? root.thGain : root.thLoss; font.pixelSize: 9; font.bold: true
                                         }
                                     }
                                 }
@@ -5118,7 +5354,7 @@ Panel {
                         Rectangle {
                             width: root.wideLayout ? (analyticsTabCol.width - Style.space(8)) / 2 : analyticsTabCol.width
                             height: wealthCol.implicitHeight + Style.space(16)
-                            radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
+                            radius: 8; color: root.thBgCard; border.color: root.thBorder; border.width: 1
 
                             Column {
                                 id: wealthCol
@@ -5127,15 +5363,15 @@ Panel {
 
                                 Row {
                                     width: parent.width
-                                    Text { width: parent.width - cagrRow.width; anchors.verticalCenter: parent.verticalCenter; text: "5-Year Wealth Projection"; color: "#a6e3a1"; font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.body; font.bold: true }
+                                    Text { width: parent.width - cagrRow.width; anchors.verticalCenter: parent.verticalCenter; text: "5-Year Wealth Projection"; color: root.thGain; font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.body; font.bold: true }
                                     Row {
                                         id: cagrRow; spacing: 3
                                         Repeater {
                                             model: [8, 12, 18]
                                             delegate: Rectangle {
                                                 width: Style.space(30); height: Style.space(18); radius: 4
-                                                color: root.projCagrPct === modelData ? "#a6e3a1" : "#313244"
-                                                Text { anchors.centerIn: parent; text: modelData + "%"; color: root.projCagrPct === modelData ? "#1e1e2e" : "#cdd6f4"; font.pixelSize: 9; font.bold: true }
+                                                color: root.projCagrPct === modelData ? root.thGain : root.thBgElevated
+                                                Text { anchors.centerIn: parent; text: modelData + "%"; color: root.projCagrPct === modelData ? root.thOnSecondary : root.thTextPrimary; font.pixelSize: 9; font.bold: true }
                                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.projCagrPct = modelData }
                                             }
                                         }
@@ -5144,13 +5380,13 @@ Panel {
 
                                 Row {
                                     width: parent.width; spacing: Style.space(4)
-                                    Text { text: "Monthly Investment:"; color: "#a6adc8"; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter }
+                                    Text { text: "Monthly Investment:"; color: root.thTextMuted; font.pixelSize: 10; anchors.verticalCenter: parent.verticalCenter }
                                     Repeater {
                                         model: [0, 25, 50, 100, 250]
                                         delegate: Rectangle {
                                             width: Style.space(34); height: Style.space(18); radius: 4
-                                            color: root.projDcaMonthly === modelData ? "#89b4fa" : "#313244"
-                                            Text { anchors.centerIn: parent; text: "$" + modelData; color: root.projDcaMonthly === modelData ? "#1e1e2e" : "#cdd6f4"; font.pixelSize: 9; font.bold: root.projDcaMonthly === modelData }
+                                            color: root.projDcaMonthly === modelData ? root.thAccent : root.thBgElevated
+                                            Text { anchors.centerIn: parent; text: "$" + modelData; color: root.projDcaMonthly === modelData ? root.thOnSecondary : root.thTextPrimary; font.pixelSize: 9; font.bold: root.projDcaMonthly === modelData }
                                             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.projDcaMonthly = modelData }
                                         }
                                     }
@@ -5189,19 +5425,19 @@ Panel {
                                         for (var g = 0; g <= 2; g++) {
                                             var gv = maxV * (1 - g * 0.5)
                                             var gy = yAt(gv)
-                                            ctx.strokeStyle = "#242436"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(pL, gy); ctx.lineTo(width - pR, gy); ctx.stroke()
-                                            ctx.fillStyle = "#6c7086"; ctx.fillText("$" + Math.round(gv), 0, gy)
+                                            ctx.strokeStyle = String(root.thBgActiveTab); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(pL, gy); ctx.lineTo(width - pR, gy); ctx.stroke()
+                                            ctx.fillStyle = String(root.thTextDim); ctx.fillText("$" + Math.round(gv), 0, gy)
                                         }
                                         for (var yr2 = 0; yr2 <= 5; yr2++) {
-                                            ctx.fillStyle = "#6c7086"; ctx.fillText("Year " + yr2, xAt(yr2) - 14, height - 6)
+                                            ctx.fillStyle = String(root.thTextDim); ctx.fillText("Year " + yr2, xAt(yr2) - 14, height - 6)
                                         }
 
-                                        ctx.save(); ctx.strokeStyle = "#6c7086"; ctx.lineWidth = 1.2; ctx.setLineDash([3, 3])
+                                        ctx.save(); ctx.strokeStyle = String(root.thTextDim); ctx.lineWidth = 1.2; ctx.setLineDash([3, 3])
                                         ctx.beginPath()
                                         for (var c = 0; c <= 5; c++) { if (c === 0) ctx.moveTo(xAt(c), yAt(ptsCash[c])); else ctx.lineTo(xAt(c), yAt(ptsCash[c])) }
                                         ctx.stroke(); ctx.restore()
 
-                                        ctx.strokeStyle = "#89b4fa"; ctx.lineWidth = 1.5; ctx.beginPath()
+                                        ctx.strokeStyle = String(root.thAccent); ctx.lineWidth = 1.5; ctx.beginPath()
                                         for (var b = 0; b <= 5; b++) { if (b === 0) ctx.moveTo(xAt(b), yAt(ptsBase[b])); else ctx.lineTo(xAt(b), yAt(ptsBase[b])) }
                                         ctx.stroke()
 
@@ -5211,11 +5447,11 @@ Panel {
                                         for (var t = 0; t <= 5; t++) ctx.lineTo(xAt(t), yAt(ptsTotal[t]))
                                         ctx.lineTo(xAt(5), pT + pH); ctx.closePath(); ctx.fill()
 
-                                        ctx.strokeStyle = "#a6e3a1"; ctx.lineWidth = 2; ctx.beginPath()
+                                        ctx.strokeStyle = String(root.thGain); ctx.lineWidth = 2; ctx.beginPath()
                                         for (var t2 = 0; t2 <= 5; t2++) { if (t2 === 0) ctx.moveTo(xAt(t2), yAt(ptsTotal[t2])); else ctx.lineTo(xAt(t2), yAt(ptsTotal[t2])) }
                                         ctx.stroke()
                                         for (var d = 0; d <= 5; d++) {
-                                            ctx.fillStyle = (d === root.hoveredProjIdx) ? "#f9e2af" : "#a6e3a1"
+                                            ctx.fillStyle = (d === root.hoveredProjIdx) ? String(root.thWarn) : String(root.thGain)
                                             ctx.beginPath(); ctx.arc(xAt(d), yAt(ptsTotal[d]), d === root.hoveredProjIdx ? 4 : 2.5, 0, Math.PI * 2); ctx.fill()
                                         }
                                     }
@@ -5235,15 +5471,15 @@ Panel {
                                     Repeater {
                                         model: [1, 3, 5]
                                         delegate: Rectangle {
-                                            width: (parent.width - Style.space(8)) / 3; height: Style.space(32); radius: 5; color: "#11111b"
+                                            width: (parent.width - Style.space(8)) / 3; height: Style.space(32); radius: 5; color: root.thBgSubtle
                                             property real startEq: Number(root.summaryData.total_value || 0) + Number(root.summaryData.wallet_cash_usd || 0)
                                             property real rM: (root.projCagrPct / 100.0) / 12.0
                                             property real months: modelData * 12
                                             property real fvTot: startEq * Math.pow(1 + rM, months) + root.projDcaMonthly * ((Math.pow(1 + rM, months) - 1) / rM)
-                                            border.color: root.hoveredProjIdx === modelData ? "#a6e3a1" : "#313244"; border.width: 1
+                                            border.color: root.hoveredProjIdx === modelData ? root.thGain : root.thBgElevated; border.width: 1
                                             Column { anchors.centerIn: parent
-                                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData + " Year"; color: "#6c7086"; font.pixelSize: 9 }
-                                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: "$" + fvTot.toFixed(0); color: "#a6e3a1"; font.pixelSize: Style.font.small || Style.font.body; font.bold: true }
+                                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: modelData + " Year"; color: root.thTextDim; font.pixelSize: 9 }
+                                                Text { anchors.horizontalCenter: parent.horizontalCenter; text: "$" + fvTot.toFixed(0); color: root.thGain; font.pixelSize: Style.font.small || Style.font.body; font.bold: true }
                                             }
                                         }
                                     }
@@ -5255,52 +5491,52 @@ Panel {
                     Rectangle {
                         width: parent.width
                         height: rebCol.implicitHeight + Style.space(14)
-                        radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
+                        radius: 8; color: root.thBgCard; border.color: root.thBorder; border.width: 1
                         Column {
                             id: rebCol
                             anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(7) }
                             spacing: Style.space(5)
                             Row {
                                 width: parent.width
-                                Text { width: parent.width - tgtAddBtn.width - Style.space(6); anchors.verticalCenter: parent.verticalCenter; text: "Target Portfolio Allocation Versus Maximum Limit (" + Number((root.summaryData.fee_config || ({})).max_stock_pct || 25).toFixed(0) + "%)"; color: "#cdd6f4"; font.pixelSize: Style.font.body; font.bold: true; elide: Text.ElideRight }
+                                Text { width: parent.width - tgtAddBtn.width - Style.space(6); anchors.verticalCenter: parent.verticalCenter; text: "Target Portfolio Allocation Versus Maximum Limit (" + Number((root.summaryData.fee_config || ({})).max_stock_pct || 25).toFixed(0) + "%)"; color: root.thTextPrimary; font.pixelSize: Style.font.body; font.bold: true; elide: Text.ElideRight }
                                 Rectangle {
                                     id: tgtAddBtn; anchors.verticalCenter: parent.verticalCenter
                                     width: tgtAddBtnTxt.implicitWidth + 12; height: Style.space(20); radius: 4
-                                    color: root.targetAddOpen ? "#89b4fa" : "#1e2e4a"; border.color: "#89b4fa"; border.width: 1
-                                    Text { id: tgtAddBtnTxt; anchors.centerIn: parent; text: root.targetAddOpen ? "Close" : "+ Set Target Weight"; color: root.targetAddOpen ? "#1e1e2e" : "#89b4fa"; font.pixelSize: 9; font.bold: true }
+                                    color: root.targetAddOpen ? root.thAccent : root.thAccentBg; border.color: root.thAccent; border.width: 1
+                                    Text { id: tgtAddBtnTxt; anchors.centerIn: parent; text: root.targetAddOpen ? "Close" : "+ Set Target Weight"; color: root.targetAddOpen ? root.thOnAccent : root.thAccent; font.pixelSize: 9; font.bold: true }
                                     MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.targetAddOpen = !root.targetAddOpen }
                                 }
                             }
                             Rectangle {
                                 width: rebCol.width; visible: root.targetAddOpen
-                                height: tgtFormRow.implicitHeight + Style.space(10); radius: 6; color: "#11111b"; border.color: "#89b4fa"; border.width: 1
+                                height: tgtFormRow.implicitHeight + Style.space(10); radius: 6; color: root.thBgSubtle; border.color: root.thAccent; border.width: 1
                                 Row {
                                     id: tgtFormRow
                                     anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: Style.space(6) }
                                     spacing: Style.space(5)
                                     Rectangle {
-                                        width: parent.width * 0.34; height: Style.space(24); radius: 4; color: "#313244"; border.color: "#45475a"; border.width: 1
+                                        width: parent.width * 0.34; height: Style.space(24); radius: 4; color: root.thBgElevated; border.color: root.thBorderStrong; border.width: 1
                                         TextInput {
-                                            id: tgtSymIn; anchors.fill: parent; anchors.margins: 4; color: "#cdd6f4"
+                                            id: tgtSymIn; anchors.fill: parent; anchors.margins: 4; color: root.thTextPrimary
                                             font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.small || Style.font.body
                                             text: root.targetAddSym; onTextChanged: if (root.targetAddSym !== text) root.targetAddSym = text
                                             Connections { target: root; function onTargetAddSymChanged() { if (tgtSymIn.text !== root.targetAddSym) tgtSymIn.text = root.targetAddSym } }
-                                            Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Symbol"; color: "#6c7086"; font: tgtSymIn.font; visible: !tgtSymIn.text && !tgtSymIn.activeFocus }
+                                            Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Symbol"; color: root.thTextDim; font: tgtSymIn.font; visible: !tgtSymIn.text && !tgtSymIn.activeFocus }
                                         }
                                     }
                                     Rectangle {
-                                        width: parent.width * 0.32; height: Style.space(24); radius: 4; color: "#313244"; border.color: "#45475a"; border.width: 1
+                                        width: parent.width * 0.32; height: Style.space(24); radius: 4; color: root.thBgElevated; border.color: root.thBorderStrong; border.width: 1
                                         TextInput {
-                                            id: tgtPctIn; anchors.fill: parent; anchors.margins: 4; color: "#cdd6f4"
+                                            id: tgtPctIn; anchors.fill: parent; anchors.margins: 4; color: root.thTextPrimary
                                             font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.small || Style.font.body
                                             text: root.targetAddPct; onTextChanged: if (root.targetAddPct !== text) root.targetAddPct = text
                                             Connections { target: root; function onTargetAddPctChanged() { if (tgtPctIn.text !== root.targetAddPct) tgtPctIn.text = root.targetAddPct } }
-                                            Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Target Weight %"; color: "#6c7086"; font: tgtPctIn.font; visible: !tgtPctIn.text && !tgtPctIn.activeFocus }
+                                            Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Target Weight %"; color: root.thTextDim; font: tgtPctIn.font; visible: !tgtPctIn.text && !tgtPctIn.activeFocus }
                                         }
                                     }
                                     Rectangle {
-                                        width: parent.width * 0.34 - Style.space(10); height: Style.space(24); radius: 4; color: "#89b4fa"
-                                        Text { anchors.centerIn: parent; text: "Save Target"; color: "#1e1e2e"; font.pixelSize: 10; font.bold: true }
+                                        width: parent.width * 0.34 - Style.space(10); height: Style.space(24); radius: 4; color: root.thAccent
+                                        Text { anchors.centerIn: parent; text: "Save Target"; color: root.thOnSecondary; font.pixelSize: 10; font.bold: true }
                                         MouseArea {
                                             anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running
                                             onClicked: {
@@ -5319,7 +5555,7 @@ Panel {
                             Text {
                                 visible: Object.keys(root.summaryData.targets || ({})).length === 0
                                 text: "No target weights configured yet — click '+ Set Target Weight' above."
-                                color: "#6c7086"; font.pixelSize: Style.font.small || Style.font.body; wrapMode: Text.WordWrap; width: parent.width
+                                color: root.thTextDim; font.pixelSize: Style.font.small || Style.font.body; wrapMode: Text.WordWrap; width: parent.width
                             }
                             Repeater {
                                 model: Object.keys(root.summaryData.targets || ({}))
@@ -5333,20 +5569,20 @@ Panel {
                                         return 0
                                     }
                                     property real needUsd: Math.max(0, (tgtPct - curPct) / 100.0 * Math.max(10, Number(root.summaryData.total_value || 0)))
-                                    Text { width: rebCol.width * 0.14; text: modelData; color: "#cdd6f4"; font.pixelSize: Style.font.small || Style.font.body; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
+                                    Text { width: rebCol.width * 0.14; text: modelData; color: root.thTextPrimary; font.pixelSize: Style.font.small || Style.font.body; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
                                     Item {
                                         width: rebCol.width * 0.50; height: 10; anchors.verticalCenter: parent.verticalCenter
-                                        Rectangle { anchors.verticalCenter: parent.verticalCenter; width: parent.width; height: 6; radius: 3; color: "#313244"
-                                            Rectangle { width: Math.min(1, parent.parent.parent.curPct / 100.0) * parent.width; height: parent.height; radius: 3; color: parent.parent.parent.curPct >= parent.parent.parent.tgtPct ? "#a6e3a1" : "#89b4fa" }
-                                            Rectangle { x: Math.min(parent.width - 2, (parent.parent.parent.tgtPct / 100.0) * parent.width); y: -2; width: 2; height: 10; color: "#f9e2af" }
-                                            Rectangle { x: Math.min(parent.width - 2, (parent.parent.parent.capPct / 100.0) * parent.width); y: -2; width: 1.5; height: 10; color: "#f38ba8" }
+                                        Rectangle { anchors.verticalCenter: parent.verticalCenter; width: parent.width; height: 6; radius: 3; color: root.thBgElevated
+                                            Rectangle { width: Math.min(1, parent.parent.parent.curPct / 100.0) * parent.width; height: parent.height; radius: 3; color: parent.parent.parent.curPct >= parent.parent.parent.tgtPct ? root.thGain : root.thAccent }
+                                            Rectangle { x: Math.min(parent.width - 2, (parent.parent.parent.tgtPct / 100.0) * parent.width); y: -2; width: 2; height: 10; color: root.thWarn }
+                                            Rectangle { x: Math.min(parent.width - 2, (parent.parent.parent.capPct / 100.0) * parent.width); y: -2; width: 1.5; height: 10; color: root.thLoss }
                                         }
                                     }
-                                    Text { width: rebCol.width * 0.20; text: curPct.toFixed(0) + "% / " + tgtPct.toFixed(0) + "%"; color: "#a6adc8"; font.pixelSize: Style.font.small ? Style.font.small - 1 : 10; anchors.verticalCenter: parent.verticalCenter }
+                                    Text { width: rebCol.width * 0.20; text: curPct.toFixed(0) + "% / " + tgtPct.toFixed(0) + "%"; color: root.thTextMuted; font.pixelSize: Style.font.small ? Style.font.small - 1 : 10; anchors.verticalCenter: parent.verticalCenter }
                                     Rectangle {
                                         width: rebCol.width * 0.16 - Style.space(18); height: Style.space(20); radius: 4
-                                        color: needUsd >= 1 ? "#243b2c" : "#313244"
-                                        Text { anchors.centerIn: parent; text: needUsd >= 1 ? ("Buy $" + needUsd.toFixed(0)) : "× Delete"; color: needUsd >= 1 ? "#a6e3a1" : "#f38ba8"; font.pixelSize: 9; font.bold: true }
+                                        color: needUsd >= 1 ? root.thGainBg : root.thBgElevated
+                                        Text { anchors.centerIn: parent; text: needUsd >= 1 ? ("Buy $" + needUsd.toFixed(0)) : "× Delete"; color: needUsd >= 1 ? root.thGain : root.thLoss; font.pixelSize: 9; font.bold: true }
                                         MouseArea {
                                             anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running
                                             onClicked: {
@@ -5373,7 +5609,7 @@ Panel {
                         width: parent.width
                         visible: (icp.accounts || []).length > 0 || depUsd > 0 || depZwg > 0
                         height: idleCashCol.implicitHeight + Style.space(14)
-                        radius: 8; color: "#181825"; border.color: (depUsd > 0 || depZwg > 0) ? "#a6e3a1" : "#313244"; border.width: 1
+                        radius: 8; color: root.thBgCard; border.color: (depUsd > 0 || depZwg > 0) ? root.thGain : root.thBgElevated; border.width: 1
                         Column {
                             id: idleCashCol
                             anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(7) }
@@ -5383,12 +5619,12 @@ Panel {
                                 Text {
                                     width: parent.width * 0.56
                                     text: "Unused Portal Balances Deployment"
-                                    color: "#a6e3a1"; font.pixelSize: Style.font.body; font.bold: true; elide: Text.ElideRight
+                                    color: root.thGain; font.pixelSize: Style.font.body; font.bold: true; elide: Text.ElideRight
                                 }
                                 Text {
                                     width: parent.width * 0.44; horizontalAlignment: Text.AlignRight
                                     text: "Deployable: $" + idleCashCard.depUsd.toFixed(2) + " USD • ZiG " + idleCashCard.depZwg.toFixed(2)
-                                    color: "#89dceb"; font.pixelSize: 9; font.bold: true; elide: Text.ElideLeft
+                                    color: root.thInfo; font.pixelSize: 9; font.bold: true; elide: Text.ElideLeft
                                 }
                             }
                             Flow {
@@ -5397,11 +5633,11 @@ Panel {
                                     model: idleCashCard.icp.accounts || []
                                     delegate: Rectangle {
                                         width: acChipTxt.implicitWidth + 12; height: Style.space(18); radius: 4
-                                        color: "#11111b"; border.color: (Number(modelData.deployable_usd || 0) > 0 || Number(modelData.deployable_zwg || 0) > 0) ? "#89b4fa" : "#313244"; border.width: 1
+                                        color: root.thBgSubtle; border.color: (Number(modelData.deployable_usd || 0) > 0 || Number(modelData.deployable_zwg || 0) > 0) ? root.thAccent : root.thBgElevated; border.width: 1
                                         Text {
                                             id: acChipTxt; anchors.centerIn: parent
                                             text: modelData.title + ": $" + Number(modelData.deployable_usd || 0).toFixed(2) + " USD • ZiG " + Number(modelData.deployable_zwg || 0).toFixed(2) + ((Number(modelData.held_usd || 0) > 0 || Number(modelData.held_zwg || 0) > 0) ? " (held deducted)" : "")
-                                            color: "#cdd6f4"; font.pixelSize: 8; font.bold: true
+                                            color: root.thTextPrimary; font.pixelSize: 8; font.bold: true
                                         }
                                     }
                                 }
@@ -5414,16 +5650,16 @@ Panel {
                                     : ("Idle balances cannot yet cover 1 whole share + broker fees"
                                         + (idleCashCard.icp.usd_gap_for_one !== null && idleCashCard.icp.usd_gap_for_one !== undefined ? (" • USD Top-Up Needed: +$" + Number(idleCashCard.icp.usd_gap_for_one).toFixed(2)) : "")
                                         + (idleCashCard.icp.zwg_gap_for_one !== null && idleCashCard.icp.zwg_gap_for_one !== undefined ? (" • ZiG Top-Up Needed: +ZiG " + Number(idleCashCard.icp.zwg_gap_for_one).toFixed(2)) : ""))
-                                color: "#a6adc8"; font.pixelSize: 9
+                                color: root.thTextMuted; font.pixelSize: 9
                             }
                             Repeater {
                                 model: (idleCashCard.icp.usd_picks || []).slice(0, 3).concat((idleCashCard.icp.zwg_picks || []).slice(0, 3))
                                 delegate: Row {
                                     width: idleCashCol.width
-                                    Text { width: idleCashCol.width * 0.14; text: modelData.symbol; color: "#a6e3a1"; font.pixelSize: 9; font.bold: true }
-                                    Text { width: idleCashCol.width * 0.34; text: "Buy " + modelData.max_shares + " shares @ " + root.fmtPrice(modelData.exec_price, modelData.currency); color: "#cdd6f4"; font.pixelSize: 9; elide: Text.ElideRight }
-                                    Text { width: idleCashCol.width * 0.30; text: "Cost " + root.fmtShortMoney(modelData.net_cost, modelData.currency) + " (incl. fees)"; color: "#89dceb"; font.pixelSize: 9; elide: Text.ElideRight }
-                                    Text { width: idleCashCol.width * 0.22; horizontalAlignment: Text.AlignRight; text: "Score " + modelData.score + " • " + Number(modelData.win_prob_pct || 50).toFixed(0) + "% win"; color: "#cba6f7"; font.pixelSize: 9; font.bold: true }
+                                    Text { width: idleCashCol.width * 0.14; text: modelData.symbol; color: root.thGain; font.pixelSize: 9; font.bold: true }
+                                    Text { width: idleCashCol.width * 0.34; text: "Buy " + modelData.max_shares + " shares @ " + root.fmtPrice(modelData.exec_price, modelData.currency); color: root.thTextPrimary; font.pixelSize: 9; elide: Text.ElideRight }
+                                    Text { width: idleCashCol.width * 0.30; text: "Cost " + root.fmtShortMoney(modelData.net_cost, modelData.currency) + " (incl. fees)"; color: root.thInfo; font.pixelSize: 9; elide: Text.ElideRight }
+                                    Text { width: idleCashCol.width * 0.22; horizontalAlignment: Text.AlignRight; text: "Score " + modelData.score + " • " + Number(modelData.win_prob_pct || 50).toFixed(0) + "% win"; color: root.thSecondary; font.pixelSize: 9; font.bold: true }
                                 }
                             }
                         }
@@ -5433,23 +5669,23 @@ Panel {
                     Rectangle {
                         width: parent.width
                         height: dcaTabCol.implicitHeight + Style.space(14)
-                        radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
+                        radius: 8; color: root.thBgCard; border.color: root.thBorder; border.width: 1
                         Column {
                             id: dcaTabCol
                             anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(7) }
                             spacing: Style.space(5)
                             Row {
                                 width: parent.width; spacing: Style.space(6)
-                                Text { width: parent.width - dcaBudgetRow.width - Style.space(6); anchors.verticalCenter: parent.verticalCenter; text: "Dollar-Cost Averaging Investment Planner"; color: "#cba6f7"; font.pixelSize: Style.font.body; font.bold: true; elide: Text.ElideRight }
+                                Text { width: parent.width - dcaBudgetRow.width - Style.space(6); anchors.verticalCenter: parent.verticalCenter; text: "Dollar-Cost Averaging Investment Planner"; color: root.thSecondary; font.pixelSize: Style.font.body; font.bold: true; elide: Text.ElideRight }
                                 Row {
                                     id: dcaBudgetRow; spacing: Style.space(4); anchors.verticalCenter: parent.verticalCenter
                                     Rectangle {
                                         visible: Number((root.summaryData.idle_cash_plan || ({})).total_deployable_usd || 0) > 0
-                                        width: dcaIdleTxt.implicitWidth + 10; height: Style.space(22); radius: 4; color: "#243b2c"; border.color: "#a6e3a1"; border.width: 1
+                                        width: dcaIdleTxt.implicitWidth + 10; height: Style.space(22); radius: 4; color: root.thGainBg; border.color: root.thGain; border.width: 1
                                         Text {
                                             id: dcaIdleTxt; anchors.centerIn: parent
                                             text: "Use Unused ($" + Number((root.summaryData.idle_cash_plan || ({})).total_deployable_usd || 0).toFixed(2) + ")"
-                                            color: "#a6e3a1"; font.pixelSize: 9; font.bold: true
+                                            color: root.thGain; font.pixelSize: 9; font.bold: true
                                         }
                                         MouseArea {
                                             anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !dcaProc.running
@@ -5461,18 +5697,18 @@ Panel {
                                         }
                                     }
                                     Rectangle {
-                                        width: Style.space(90); height: Style.space(22); radius: 4; color: "#313244"; border.color: "#45475a"; border.width: 1
+                                        width: Style.space(90); height: Style.space(22); radius: 4; color: root.thBgElevated; border.color: root.thBorderStrong; border.width: 1
                                         TextInput {
-                                            id: dcaBudIn; anchors.fill: parent; anchors.margins: 4; color: "#cdd6f4"
+                                            id: dcaBudIn; anchors.fill: parent; anchors.margins: 4; color: root.thTextPrimary
                                             font.family: root.bar ? root.bar.fontFamily : Style.font.family; font.pixelSize: Style.font.small || Style.font.body
                                             text: root.dcaBudgetText; onTextChanged: if (root.dcaBudgetText !== text) root.dcaBudgetText = text
                                             onAccepted: root.runDcaBudget(root.dcaBudgetText)
-                                            Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Budget $"; color: "#6c7086"; font: dcaBudIn.font; visible: !dcaBudIn.text && !dcaBudIn.activeFocus }
+                                            Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Budget $"; color: root.thTextDim; font: dcaBudIn.font; visible: !dcaBudIn.text && !dcaBudIn.activeFocus }
                                         }
                                     }
                                     Rectangle {
-                                        width: dcaRunTxt.implicitWidth + 14; height: Style.space(22); radius: 4; color: dcaProc.running ? "#45475a" : "#cba6f7"
-                                        Text { id: dcaRunTxt; anchors.centerIn: parent; text: dcaProc.running ? "Planning..." : "Generate Plan"; color: "#1e1e2e"; font.pixelSize: 10; font.bold: true }
+                                        width: dcaRunTxt.implicitWidth + 14; height: Style.space(22); radius: 4; color: dcaProc.running ? root.thBorderStrong : root.thSecondary
+                                        Text { id: dcaRunTxt; anchors.centerIn: parent; text: dcaProc.running ? "Planning..." : "Generate Plan"; color: root.thOnSecondary; font.pixelSize: 10; font.bold: true }
                                         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !dcaProc.running; onClicked: root.runDcaBudget(root.dcaBudgetText) }
                                     }
                                 }
@@ -5480,16 +5716,16 @@ Panel {
                             Text {
                                 visible: root.dcaPlanData === null || (root.dcaPlanData.plan || []).length === 0
                                 text: "Enter your investment budget above to allocate shares toward under-weight positions or watchlist picks."
-                                color: "#6c7086"; font.pixelSize: Style.font.small || Style.font.body; wrapMode: Text.WordWrap; width: parent.width
+                                color: root.thTextDim; font.pixelSize: Style.font.small || Style.font.body; wrapMode: Text.WordWrap; width: parent.width
                             }
                             Repeater {
                                 model: root.dcaPlanData ? (root.dcaPlanData.plan || []) : []
                                 delegate: Row {
                                     width: dcaTabCol.width
-                                    Text { width: dcaTabCol.width * 0.20; text: modelData.symbol; color: "#cdd6f4"; font.pixelSize: Style.font.small || Style.font.body; font.bold: true }
-                                    Text { width: dcaTabCol.width * 0.30; text: Number(modelData.current_pct || 0).toFixed(0) + "% → " + Number(modelData.target_pct || 0).toFixed(0) + "%"; color: "#a6adc8"; font.pixelSize: Style.font.small || Style.font.body }
-                                    Text { width: dcaTabCol.width * 0.25; horizontalAlignment: Text.AlignRight; text: "$" + Number(modelData.alloc_usd || 0).toFixed(2); color: "#a6e3a1"; font.pixelSize: Style.font.small || Style.font.body }
-                                    Text { width: dcaTabCol.width * 0.25; horizontalAlignment: Text.AlignRight; text: Number(modelData.shares || 0).toFixed(2) + " shares"; color: "#cdd6f4"; font.pixelSize: Style.font.small || Style.font.body }
+                                    Text { width: dcaTabCol.width * 0.20; text: modelData.symbol; color: root.thTextPrimary; font.pixelSize: Style.font.small || Style.font.body; font.bold: true }
+                                    Text { width: dcaTabCol.width * 0.30; text: Number(modelData.current_pct || 0).toFixed(0) + "% → " + Number(modelData.target_pct || 0).toFixed(0) + "%"; color: root.thTextMuted; font.pixelSize: Style.font.small || Style.font.body }
+                                    Text { width: dcaTabCol.width * 0.25; horizontalAlignment: Text.AlignRight; text: "$" + Number(modelData.alloc_usd || 0).toFixed(2); color: root.thGain; font.pixelSize: Style.font.small || Style.font.body }
+                                    Text { width: dcaTabCol.width * 0.25; horizontalAlignment: Text.AlignRight; text: Number(modelData.shares || 0).toFixed(2) + " shares"; color: root.thTextPrimary; font.pixelSize: Style.font.small || Style.font.body }
                                 }
                             }
                         }
@@ -5506,32 +5742,32 @@ Panel {
                         Rectangle {
                             width: root.wideLayout ? (analyticsTabCol.width - Style.space(8)) / 2 : analyticsTabCol.width
                             height: idxCol.implicitHeight + Style.space(14)
-                            radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
+                            radius: 8; color: root.thBgCard; border.color: root.thBorder; border.width: 1
                             Column {
                                 id: idxCol
                                 anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(7) }
                                 spacing: Style.space(4)
-                                Text { text: "Live Market Indices & Unit Trusts"; color: "#89dceb"; font.pixelSize: Style.font.body; font.bold: true }
+                                Text { text: "Live Market Indices & Unit Trusts"; color: root.thInfo; font.pixelSize: Style.font.body; font.bold: true }
                                 Repeater {
                                     model: ((root.summaryData.market_intel || ({})).indices || []).slice(0, 8)
                                     delegate: Row {
                                         width: idxCol.width
-                                        Text { width: idxCol.width * 0.36; text: modelData.name; color: "#cdd6f4"; font.pixelSize: 9; font.bold: true; elide: Text.ElideRight }
-                                        Text { width: idxCol.width * 0.18; horizontalAlignment: Text.AlignRight; text: Number(modelData.level || 0).toFixed(2); color: "#89b4fa"; font.pixelSize: 9 }
-                                        Text { width: idxCol.width * 0.46; horizontalAlignment: Text.AlignRight; text: "1-Month " + Number(modelData.one_month || 0).toFixed(0) + " • 52-Week High " + Number(modelData.high_52w || 0).toFixed(0); color: "#a6adc8"; font.pixelSize: 8; elide: Text.ElideRight }
+                                        Text { width: idxCol.width * 0.36; text: modelData.name; color: root.thTextPrimary; font.pixelSize: 9; font.bold: true; elide: Text.ElideRight }
+                                        Text { width: idxCol.width * 0.18; horizontalAlignment: Text.AlignRight; text: Number(modelData.level || 0).toFixed(2); color: root.thAccent; font.pixelSize: 9 }
+                                        Text { width: idxCol.width * 0.46; horizontalAlignment: Text.AlignRight; text: "1-Month " + Number(modelData.one_month || 0).toFixed(0) + " • 52-Week High " + Number(modelData.high_52w || 0).toFixed(0); color: root.thTextMuted; font.pixelSize: 8; elide: Text.ElideRight }
                                     }
                                 }
                                 Text {
                                     visible: ((root.summaryData.market_intel || ({})).unit_trusts || []).length > 0
                                     text: "Unit Trusts (" + ((root.summaryData.market_intel || ({})).unit_trusts || []).length + ")"
-                                    color: "#cba6f7"; font.pixelSize: 9; font.bold: true
+                                    color: root.thSecondary; font.pixelSize: 9; font.bold: true
                                 }
                                 Repeater {
                                     model: ((root.summaryData.market_intel || ({})).unit_trusts || []).slice(0, 5)
                                     delegate: Row {
                                         width: idxCol.width
-                                        Text { width: idxCol.width * 0.65; text: modelData.name || modelData.symbol; color: "#cdd6f4"; font.pixelSize: 9; elide: Text.ElideRight }
-                                        Text { width: idxCol.width * 0.35; horizontalAlignment: Text.AlignRight; text: root.fmtShortMoney(modelData.price, modelData.currency) + " (" + modelData.currency + ")"; color: "#a6e3a1"; font.pixelSize: 9 }
+                                        Text { width: idxCol.width * 0.65; text: modelData.name || modelData.symbol; color: root.thTextPrimary; font.pixelSize: 9; elide: Text.ElideRight }
+                                        Text { width: idxCol.width * 0.35; horizontalAlignment: Text.AlignRight; text: root.fmtShortMoney(modelData.price, modelData.currency) + " (" + modelData.currency + ")"; color: root.thGain; font.pixelSize: 9 }
                                     }
                                 }
                             }
@@ -5540,17 +5776,17 @@ Panel {
                         Rectangle {
                             width: root.wideLayout ? (analyticsTabCol.width - Style.space(8)) / 2 : analyticsTabCol.width
                             height: ffCol.implicitHeight + Style.space(14)
-                            radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
+                            radius: 8; color: root.thBgCard; border.color: root.thBorder; border.width: 1
                             Column {
                                 id: ffCol
                                 anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(7) }
                                 spacing: Style.space(4)
-                                Text { text: "Exchange Foreign Flow Leaders & Movers"; color: "#f9e2af"; font.pixelSize: Style.font.body; font.bold: true }
+                                Text { text: "Exchange Foreign Flow Leaders & Movers"; color: root.thWarn; font.pixelSize: Style.font.body; font.bold: true }
                                 property var fKeys: Object.keys((root.summaryData.market_intel || ({})).foreign_counters || ({}))
                                 Text {
                                     visible: ffCol.fKeys.length === 0
                                     text: "No counter-level foreign purchases or sales reported in the latest Daily Trade Report."
-                                    color: "#6c7086"; font.pixelSize: 9; wrapMode: Text.WordWrap; width: parent.width
+                                    color: root.thTextDim; font.pixelSize: 9; wrapMode: Text.WordWrap; width: parent.width
                                 }
                                 Repeater {
                                     model: ffCol.fKeys.slice(0, 6)
@@ -5558,17 +5794,17 @@ Panel {
                                         width: ffCol.width
                                         property var fObj: ((root.summaryData.market_intel || ({})).foreign_counters || ({}))[modelData] || ({})
                                         property real fNet: Number(fObj.net_val || 0)
-                                        Text { width: ffCol.width * 0.28; text: modelData; color: fObj.currency === "ZWG" ? "#f9e2af" : "#cdd6f4"; font.pixelSize: 9; font.bold: true }
-                                        Text { width: ffCol.width * 0.36; text: fNet >= 0 ? "Foreign Inflow" : "Foreign Outflow"; color: fNet >= 0 ? "#a6e3a1" : "#f38ba8"; font.pixelSize: 9 }
-                                        Text { width: ffCol.width * 0.36; horizontalAlignment: Text.AlignRight; text: root.fmtSignedMoney(fNet, fObj.currency || "USD"); color: fNet >= 0 ? "#a6e3a1" : "#f38ba8"; font.pixelSize: 9; font.bold: true }
+                                        Text { width: ffCol.width * 0.28; text: modelData; color: fObj.currency === "ZWG" ? root.thWarn : root.thTextPrimary; font.pixelSize: 9; font.bold: true }
+                                        Text { width: ffCol.width * 0.36; text: fNet >= 0 ? "Foreign Inflow" : "Foreign Outflow"; color: fNet >= 0 ? root.thGain : root.thLoss; font.pixelSize: 9 }
+                                        Text { width: ffCol.width * 0.36; horizontalAlignment: Text.AlignRight; text: root.fmtSignedMoney(fNet, fObj.currency || "USD"); color: fNet >= 0 ? root.thGain : root.thLoss; font.pixelSize: 9; font.bold: true }
                                     }
                                 }
                                 Repeater {
                                     model: (((root.summaryData.market_intel || ({})).vfex || ({})).movers || []).slice(0, 3)
                                     delegate: Row {
                                         width: ffCol.width
-                                        Text { width: ffCol.width * 0.65; text: "Mover: " + (modelData.counter || ""); color: "#a6adc8"; font.pixelSize: 8; elide: Text.ElideRight }
-                                        Text { width: ffCol.width * 0.35; horizontalAlignment: Text.AlignRight; text: (Number(modelData.percentageChange || 0) >= 0 ? "+" : "") + Number(modelData.percentageChange || 0).toFixed(2) + "%"; color: Number(modelData.percentageChange || 0) >= 0 ? "#a6e3a1" : "#f38ba8"; font.pixelSize: 8; font.bold: true }
+                                        Text { width: ffCol.width * 0.65; text: "Mover: " + (modelData.counter || ""); color: root.thTextMuted; font.pixelSize: 8; elide: Text.ElideRight }
+                                        Text { width: ffCol.width * 0.35; horizontalAlignment: Text.AlignRight; text: (Number(modelData.percentageChange || 0) >= 0 ? "+" : "") + Number(modelData.percentageChange || 0).toFixed(2) + "%"; color: Number(modelData.percentageChange || 0) >= 0 ? root.thGain : root.thLoss; font.pixelSize: 8; font.bold: true }
                                     }
                                 }
                             }
@@ -5580,7 +5816,7 @@ Panel {
                         id: tab3NewsCard
                         width: parent.width
                         height: tab3NewsCol.implicitHeight + Style.space(16)
-                        radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
+                        radius: 8; color: root.thBgCard; border.color: root.thBorder; border.width: 1
 
                         Column {
                             id: tab3NewsCol
@@ -5596,14 +5832,14 @@ Panel {
                                     anchors.verticalCenter: parent.verticalCenter
                                     Text {
                                         text: "Live VFEX & ZSE News Catalysts (" + root.filteredNews().length + ")"
-                                        color: "#cba6f7"
+                                        color: root.thSecondary
                                         font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                         font.pixelSize: Style.font.body
                                         font.bold: true
                                     }
                                     Text {
                                         text: "Tracked: " + (tab3NewsCol.nsum.tracked || 0) + " • Bullish: " + (tab3NewsCol.nsum.bullish || 0) + " • Caution: " + (tab3NewsCol.nsum.caution || 0) + " • Official Disclosures: " + (tab3NewsCol.nsum.official || 0)
-                                        color: "#6c7086"
+                                        color: root.thTextDim
                                         font.pixelSize: 9
                                     }
                                 }
@@ -5621,12 +5857,12 @@ Panel {
                                         ]
                                         delegate: Rectangle {
                                             width: nfltLbl.implicitWidth + 10; height: Style.space(18); radius: 4
-                                            color: root.newsFilter === modelData.key ? "#cba6f7" : "#313244"
+                                            color: root.newsFilter === modelData.key ? root.thSecondary : root.thBgElevated
                                             Text {
                                                 id: nfltLbl
                                                 anchors.centerIn: parent
                                                 text: modelData.label
-                                                color: root.newsFilter === modelData.key ? "#1e1e2e" : "#cdd6f4"
+                                                color: root.newsFilter === modelData.key ? root.thOnAccent : root.thTextPrimary
                                                 font.pixelSize: 9
                                                 font.bold: true
                                             }
@@ -5635,8 +5871,8 @@ Panel {
                                     }
                                     Rectangle {
                                         width: nRefLbl.implicitWidth + 10; height: Style.space(18); radius: 4
-                                        color: "#1e2e4a"; border.color: "#89b4fa"; border.width: 1
-                                        Text { id: nRefLbl; anchors.centerIn: parent; text: manualProc.running ? "Refreshing..." : "⟳ Refresh News"; color: "#89b4fa"; font.pixelSize: 9; font.bold: true }
+                                        color: root.thAccentBg; border.color: root.thAccent; border.width: 1
+                                        Text { id: nRefLbl; anchors.centerIn: parent; text: manualProc.running ? "Refreshing..." : "⟳ Refresh News"; color: root.thAccent; font.pixelSize: 9; font.bold: true }
                                         MouseArea {
                                             anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running
                                             onClicked: {
@@ -5652,7 +5888,7 @@ Panel {
                             Text {
                                 visible: root.summaryData.news_enabled === false
                                 text: "Live news catalyst watching is disabled in Plugin Settings (enable newsEnabled to watch VFEX/ZSE headlines)."
-                                color: "#6c7086"
+                                color: root.thTextDim
                                 font.pixelSize: Style.font.small || Style.font.body
                                 wrapMode: Text.WordWrap
                                 width: parent.width
@@ -5661,7 +5897,7 @@ Panel {
                             Text {
                                 visible: root.summaryData.news_enabled !== false && root.filteredNews().length === 0
                                 text: "No headlines match this filter right now — try switching filter or clicking Fetch."
-                                color: "#6c7086"
+                                color: root.thTextDim
                                 font.pixelSize: Style.font.small || Style.font.body
                                 wrapMode: Text.WordWrap
                                 width: parent.width
@@ -5673,8 +5909,8 @@ Panel {
                                     width: tab3NewsCol.width
                                     height: t3nItemCol.implicitHeight + Style.space(10)
                                     radius: 6
-                                    color: t3nHover.containsMouse ? "#242436" : "#11111b"
-                                    border.color: modelData.sentiment === "Bullish" ? "#243b2c" : (modelData.sentiment === "Caution" ? "#4a242d" : "#242436")
+                                    color: t3nHover.containsMouse ? root.thBgActiveTab : root.thBgSubtle
+                                    border.color: modelData.sentiment === "Bullish" ? root.thGainBg : (modelData.sentiment === "Caution" ? "#4a242d" : root.thBgActiveTab)
                                     border.width: 1
 
                                     Rectangle {
@@ -5712,9 +5948,9 @@ Panel {
                                             Rectangle {
                                                 visible: Boolean(modelData.tracked)
                                                 width: t3TrkLbl.implicitWidth + 6; height: t3TrkLbl.implicitHeight + 2; radius: 3
-                                                color: "#1e2e4a"
+                                                color: root.thAccentBg
                                                 anchors.verticalCenter: parent.verticalCenter
-                                                Text { id: t3TrkLbl; anchors.centerIn: parent; text: "★ TRACKED"; color: "#89b4fa"; font.pixelSize: 8; font.bold: true }
+                                                Text { id: t3TrkLbl; anchors.centerIn: parent; text: "★ TRACKED"; color: root.thAccent; font.pixelSize: 8; font.bold: true }
                                             }
                                             Repeater {
                                                 model: (modelData.symbols || []).slice(0, 3)
@@ -5723,8 +5959,8 @@ Panel {
                                                     anchors.verticalCenter: parent.verticalCenter
                                                     Rectangle {
                                                         width: t3SymLbl.implicitWidth + 8; height: t3SymLbl.implicitHeight + 2; radius: 3
-                                                        color: "#242436"
-                                                        Text { id: t3SymLbl; anchors.centerIn: parent; text: modelData; color: "#cdd6f4"; font.pixelSize: 8; font.bold: true }
+                                                        color: root.thBgActiveTab
+                                                        Text { id: t3SymLbl; anchors.centerIn: parent; text: modelData; color: root.thTextPrimary; font.pixelSize: 8; font.bold: true }
                                                         MouseArea {
                                                             anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                                                             onClicked: { root.chartSymbol = modelData; root.hoveredCandleIdx = -1; root.activeTab = "overview" }
@@ -5734,7 +5970,7 @@ Panel {
                                                         visible: !root.isWatchedSymbol(modelData) && !root.isOwnedSymbol(modelData)
                                                         width: t3WPlus.implicitWidth + 6; height: t3WPlus.implicitHeight + 2; radius: 3
                                                         color: "#1b2e24"
-                                                        Text { id: t3WPlus; anchors.centerIn: parent; text: "+ Watchlist"; color: "#a6e3a1"; font.pixelSize: 8; font.bold: true }
+                                                        Text { id: t3WPlus; anchors.centerIn: parent; text: "+ Watchlist"; color: root.thGain; font.pixelSize: 8; font.bold: true }
                                                         MouseArea {
                                                             anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running
                                                             onClicked: {
@@ -5748,7 +5984,7 @@ Panel {
                                             }
                                             Text {
                                                 text: (modelData.source || "") + " • " + (modelData.date || "") + (modelData.age_label ? (" (" + root.fmtAgeLabel(modelData.age_label) + ")") : "")
-                                                color: "#6c7086"
+                                                color: root.thTextDim
                                                 font.pixelSize: 8
                                                 anchors.verticalCenter: parent.verticalCenter
                                                 elide: Text.ElideRight
@@ -5761,7 +5997,7 @@ Panel {
                                             Text {
                                                 width: parent.width - openArtBtn.width - Style.space(6)
                                                 text: modelData.title || ""
-                                                color: "#cdd6f4"
+                                                color: root.thTextPrimary
                                                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                                 font.pixelSize: Style.font.small || Style.font.body
                                                 wrapMode: Text.WordWrap
@@ -5770,7 +6006,7 @@ Panel {
                                                 id: openArtBtn
                                                 anchors.verticalCenter: parent.verticalCenter
                                                 text: "Open ↗"
-                                                color: "#89b4fa"
+                                                color: root.thAccent
                                                 font.pixelSize: 9
                                                 font.bold: true
                                             }
@@ -5808,8 +6044,8 @@ Panel {
                                 width: root.wideLayout ? (ledgerTabCol.width - Style.space(16)) / 3 : ledgerTabCol.width
                                 height: pCardCol.implicitHeight + Style.space(12)
                                 radius: 8
-                                color: isSel ? "#242436" : "#181825"
-                                border.color: Boolean(pInfo.connected) ? "#a6e3a1" : (Boolean(pInfo.mfa_pending) ? "#f9e2af" : (isSel ? "#89b4fa" : "#313244"))
+                                color: isSel ? root.thBgActiveTab : root.thBgCard
+                                border.color: Boolean(pInfo.connected) ? root.thGain : (Boolean(pInfo.mfa_pending) ? root.thWarn : (isSel ? root.thAccent : root.thBgElevated))
                                 border.width: 1
 
                                 MouseArea {
@@ -5823,14 +6059,14 @@ Panel {
                                     spacing: 3
                                     Row {
                                         width: parent.width
-                                        Text { width: parent.width - stPill.width; text: modelData.label; color: "#cdd6f4"; font.pixelSize: Style.font.small || Style.font.body; font.bold: true; elide: Text.ElideRight; anchors.verticalCenter: parent.verticalCenter }
+                                        Text { width: parent.width - stPill.width; text: modelData.label; color: root.thTextPrimary; font.pixelSize: Style.font.small || Style.font.body; font.bold: true; elide: Text.ElideRight; anchors.verticalCenter: parent.verticalCenter }
                                         Rectangle {
                                             id: stPill; width: stPillTxt.implicitWidth + 8; height: stPillTxt.implicitHeight + 3; radius: 3
-                                            color: Boolean(pCardRoot.pInfo.connected) ? "#1f3a27" : (Boolean(pCardRoot.pInfo.mfa_pending) ? "#2b261d" : "#313244")
+                                            color: Boolean(pCardRoot.pInfo.connected) ? root.thGainBg : (Boolean(pCardRoot.pInfo.mfa_pending) ? root.thWarnBg : root.thBgElevated)
                                             Text {
                                                 id: stPillTxt; anchors.centerIn: parent
                                                 text: Boolean(pCardRoot.pInfo.connected) ? "● Synced" : (Boolean(pCardRoot.pInfo.mfa_pending) ? "◔ OTP" : "Offline")
-                                                color: Boolean(pCardRoot.pInfo.connected) ? "#a6e3a1" : (Boolean(pCardRoot.pInfo.mfa_pending) ? "#f9e2af" : "#6c7086")
+                                                color: Boolean(pCardRoot.pInfo.connected) ? root.thGain : (Boolean(pCardRoot.pInfo.mfa_pending) ? root.thWarn : root.thTextDim)
                                                 font.pixelSize: 8; font.bold: true
                                             }
                                         }
@@ -5838,7 +6074,7 @@ Panel {
                                     Text {
                                         width: parent.width
                                         text: Boolean(pCardRoot.pInfo.connected) ? ((pCardRoot.pInfo.email_masked || "") + (pCardRoot.pInfo.cds_number ? (" • CDS " + pCardRoot.pInfo.cds_number) : "")) : "Click to configure 0600 login"
-                                        color: "#a6adc8"; font.pixelSize: 9; elide: Text.ElideRight
+                                        color: root.thTextMuted; font.pixelSize: 9; elide: Text.ElideRight
                                     }
                                     Row {
                                         width: parent.width; spacing: 4
@@ -5850,11 +6086,11 @@ Panel {
                                                 var cv = modelData.cur === "ZWG" ? Number(a.cash_zwg || 0) : Number(a.cash_usd || 0)
                                                 return Boolean(a.connected) ? ("Holdings: " + (a.holdings_count || 0) + (cv > 0 ? (" • " + root.fmtShortMoney(cv, modelData.cur)) : "")) : "Local secrets only"
                                             }
-                                            color: "#89dceb"; font.pixelSize: 9; elide: Text.ElideRight
+                                            color: root.thInfo; font.pixelSize: 9; elide: Text.ElideRight
                                         }
                                         Rectangle {
-                                            id: pActChip; width: pActTxt.implicitWidth + 10; height: Style.space(18); radius: 3; color: "#313244"
-                                            Text { id: pActTxt; anchors.centerIn: parent; text: Boolean(pCardRoot.pInfo.connected) ? "Sync" : "Login"; color: "#89b4fa"; font.pixelSize: 9; font.bold: true }
+                                            id: pActChip; width: pActTxt.implicitWidth + 10; height: Style.space(18); radius: 3; color: root.thBgElevated
+                                            Text { id: pActTxt; anchors.centerIn: parent; text: Boolean(pCardRoot.pInfo.connected) ? "Sync" : "Login"; color: root.thAccent; font.pixelSize: 9; font.bold: true }
                                             MouseArea {
                                                 anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !ctradeProc.running
                                                 onClicked: {
@@ -5881,8 +6117,8 @@ Panel {
                         id: accountSyncCard
                         width: parent.width
                         height: accountSyncCol.implicitHeight + Style.space(12)
-                        radius: 8; color: "#181825"
-                        border.color: Boolean(root.activeProviderInfo().mfa_pending) ? "#f9e2af" : "#313244"; border.width: 1
+                        radius: 8; color: root.thBgCard
+                        border.color: Boolean(root.activeProviderInfo().mfa_pending) ? root.thWarn : root.thBgElevated; border.width: 1
 
                         Column {
                             id: accountSyncCol
@@ -5895,12 +6131,12 @@ Panel {
                                     width: parent.width - credTogBtn.width - (syncAllHdrBtn.visible ? syncAllHdrBtn.width + Style.space(6) : 0) - Style.space(6)
                                     anchors.verticalCenter: parent.verticalCenter
                                     text: "Portal Credentials (" + root.activeProvider.toUpperCase() + ")"
-                                    color: "#cdd6f4"; font.pixelSize: Style.font.small || Style.font.body; font.bold: true
+                                    color: root.thTextPrimary; font.pixelSize: Style.font.small || Style.font.body; font.bold: true
                                 }
                                 Rectangle {
                                     id: syncAllHdrBtn; visible: root.connectedPortalsCount() > 0
-                                    width: sAllTxt.implicitWidth + 12; height: Style.space(22); radius: 4; color: "#1f3a27"; border.color: "#a6e3a1"; border.width: 1
-                                    Text { id: sAllTxt; anchors.centerIn: parent; text: "↻ Sync All (" + root.connectedPortalsCount() + ")"; color: "#a6e3a1"; font.pixelSize: 9; font.bold: true }
+                                    width: sAllTxt.implicitWidth + 12; height: Style.space(22); radius: 4; color: root.thGainBg; border.color: root.thGain; border.width: 1
+                                    Text { id: sAllTxt; anchors.centerIn: parent; text: "↻ Sync All (" + root.connectedPortalsCount() + ")"; color: root.thGain; font.pixelSize: 9; font.bold: true }
                                     MouseArea {
                                         anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !ctradeProc.running
                                         onClicked: {
@@ -5912,8 +6148,8 @@ Panel {
                                 }
                                 Rectangle {
                                     id: credTogBtn
-                                    width: cTogTxt.implicitWidth + 12; height: Style.space(22); radius: 4; color: "#313244"
-                                    Text { id: cTogTxt; anchors.centerIn: parent; text: (root.credsExpanded || Boolean(root.activeProviderInfo().mfa_pending) || !Boolean(root.activeProviderInfo().connected)) ? "Hide Form ▴" : "Edit Login ▾"; color: "#cdd6f4"; font.pixelSize: 9; font.bold: true }
+                                    width: cTogTxt.implicitWidth + 12; height: Style.space(22); radius: 4; color: root.thBgElevated
+                                    Text { id: cTogTxt; anchors.centerIn: parent; text: (root.credsExpanded || Boolean(root.activeProviderInfo().mfa_pending) || !Boolean(root.activeProviderInfo().connected)) ? "Hide Form ▴" : "Edit Login ▾"; color: root.thTextPrimary; font.pixelSize: 9; font.bold: true }
                                     MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.credsExpanded = !root.credsExpanded }
                                 }
                             }
@@ -5925,23 +6161,23 @@ Panel {
                                 Row {
                                     width: parent.width; spacing: Style.space(6)
                                     Rectangle {
-                                        width: (parent.width - Style.space(6)) / 2; height: Style.space(26); radius: 4; color: "#313244"; border.color: ctradeEmailInput.activeFocus ? "#89b4fa" : "#45475a"; border.width: 1
+                                        width: (parent.width - Style.space(6)) / 2; height: Style.space(26); radius: 4; color: root.thBgElevated; border.color: ctradeEmailInput.activeFocus ? root.thAccent : root.thBorderStrong; border.width: 1
                                         TextInput {
-                                            id: ctradeEmailInput; anchors.fill: parent; anchors.margins: Style.space(5); color: "#cdd6f4"; font.pixelSize: Style.font.body; verticalAlignment: TextInput.AlignVCenter; clip: true
+                                            id: ctradeEmailInput; anchors.fill: parent; anchors.margins: Style.space(5); color: root.thTextPrimary; font.pixelSize: Style.font.body; verticalAlignment: TextInput.AlignVCenter; clip: true
                                             Component.onCompleted: text = root.ctradeEmailText
                                             onTextChanged: if (root.ctradeEmailText !== text) root.ctradeEmailText = text
                                             Connections { target: root; function onCtradeEmailTextChanged() { if (ctradeEmailInput.text !== root.ctradeEmailText) ctradeEmailInput.text = root.ctradeEmailText } }
-                                            Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Portal Email"; color: "#6c7086"; font: ctradeEmailInput.font; visible: !ctradeEmailInput.text && !ctradeEmailInput.activeFocus }
+                                            Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Portal Email"; color: root.thTextDim; font: ctradeEmailInput.font; visible: !ctradeEmailInput.text && !ctradeEmailInput.activeFocus }
                                         }
                                     }
                                     Rectangle {
-                                        width: (parent.width - Style.space(6)) / 2; height: Style.space(26); radius: 4; color: "#313244"; border.color: ctradePassInput.activeFocus ? "#89b4fa" : "#45475a"; border.width: 1
+                                        width: (parent.width - Style.space(6)) / 2; height: Style.space(26); radius: 4; color: root.thBgElevated; border.color: ctradePassInput.activeFocus ? root.thAccent : root.thBorderStrong; border.width: 1
                                         TextInput {
-                                            id: ctradePassInput; anchors.fill: parent; anchors.margins: Style.space(5); color: "#cdd6f4"; font.pixelSize: Style.font.body; verticalAlignment: TextInput.AlignVCenter; echoMode: TextInput.Password; clip: true
+                                            id: ctradePassInput; anchors.fill: parent; anchors.margins: Style.space(5); color: root.thTextPrimary; font.pixelSize: Style.font.body; verticalAlignment: TextInput.AlignVCenter; echoMode: TextInput.Password; clip: true
                                             Component.onCompleted: text = root.ctradePassText
                                             onTextChanged: if (root.ctradePassText !== text) root.ctradePassText = text
                                             Connections { target: root; function onCtradePassTextChanged() { if (ctradePassInput.text !== root.ctradePassText) ctradePassInput.text = root.ctradePassText } }
-                                            Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Password (0600 local)"; color: "#6c7086"; font: ctradePassInput.font; visible: !ctradePassInput.text && !ctradePassInput.activeFocus }
+                                            Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Password (0600 local)"; color: root.thTextDim; font: ctradePassInput.font; visible: !ctradePassInput.text && !ctradePassInput.activeFocus }
                                         }
                                     }
                                 }
@@ -5949,18 +6185,18 @@ Panel {
                                 Row {
                                     width: parent.width; visible: Boolean(root.activeProviderInfo().mfa_pending); spacing: Style.space(6)
                                     Rectangle {
-                                        width: parent.width * 0.68; height: Style.space(26); radius: 4; color: "#313244"; border.color: mfaOtpInput.activeFocus ? "#f9e2af" : "#45475a"; border.width: 1
+                                        width: parent.width * 0.68; height: Style.space(26); radius: 4; color: root.thBgElevated; border.color: mfaOtpInput.activeFocus ? root.thWarn : root.thBorderStrong; border.width: 1
                                         TextInput {
-                                            id: mfaOtpInput; anchors.fill: parent; anchors.margins: Style.space(5); color: "#cdd6f4"; font.pixelSize: Style.font.body; verticalAlignment: TextInput.AlignVCenter; clip: true
+                                            id: mfaOtpInput; anchors.fill: parent; anchors.margins: Style.space(5); color: root.thTextPrimary; font.pixelSize: Style.font.body; verticalAlignment: TextInput.AlignVCenter; clip: true
                                             Component.onCompleted: text = root.mfaOtpText
                                             onTextChanged: if (root.mfaOtpText !== text) root.mfaOtpText = text
                                             Connections { target: root; function onMfaOtpTextChanged() { if (mfaOtpInput.text !== root.mfaOtpText) mfaOtpInput.text = root.mfaOtpText } }
-                                            Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Enter 6-digit OTP code"; color: "#f9e2af"; font: mfaOtpInput.font; visible: !mfaOtpInput.text && !mfaOtpInput.activeFocus }
+                                            Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Enter 6-digit OTP code"; color: root.thWarn; font: mfaOtpInput.font; visible: !mfaOtpInput.text && !mfaOtpInput.activeFocus }
                                         }
                                     }
                                     Rectangle {
-                                        width: parent.width * 0.32 - Style.space(6); height: Style.space(26); radius: 4; color: ctradeProc.running ? "#45475a" : "#f9e2af"
-                                        Text { anchors.centerIn: parent; text: ctradeProc.running ? "..." : "Verify OTP"; color: "#1e1e2e"; font.pixelSize: Style.font.small || Style.font.body; font.bold: true }
+                                        width: parent.width * 0.32 - Style.space(6); height: Style.space(26); radius: 4; color: ctradeProc.running ? root.thBorderStrong : root.thWarn
+                                        Text { anchors.centerIn: parent; text: ctradeProc.running ? "..." : "Verify OTP"; color: root.thOnSecondary; font.pixelSize: Style.font.small || Style.font.body; font.bold: true }
                                         MouseArea {
                                             anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !ctradeProc.running
                                             onClicked: {
@@ -5980,8 +6216,8 @@ Panel {
                                     Rectangle {
                                         property bool hasDisc: Boolean(root.activeProviderInfo().connected) || Boolean(root.activeProviderInfo().mfa_pending)
                                         width: hasDisc ? parent.width * 0.70 : parent.width
-                                        height: Style.space(24); radius: 4; color: ctradeProc.running ? "#45475a" : "#89b4fa"
-                                        Text { anchors.centerIn: parent; text: ctradeProc.running ? "Working..." : "Connect & Sync " + root.activeProvider.toUpperCase(); color: "#1e1e2e"; font.pixelSize: Style.font.small || Style.font.body; font.bold: true }
+                                        height: Style.space(24); radius: 4; color: ctradeProc.running ? root.thBorderStrong : root.thAccent
+                                        Text { anchors.centerIn: parent; text: ctradeProc.running ? "Working..." : "Connect & Sync " + root.activeProvider.toUpperCase(); color: root.thOnSecondary; font.pixelSize: Style.font.small || Style.font.body; font.bold: true }
                                         MouseArea {
                                             anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !ctradeProc.running
                                             onClicked: {
@@ -6004,8 +6240,8 @@ Panel {
                                     }
                                     Rectangle {
                                         visible: Boolean(root.activeProviderInfo().connected) || Boolean(root.activeProviderInfo().mfa_pending)
-                                        width: parent.width * 0.30 - Style.space(6); height: Style.space(24); radius: 4; color: "#3d2229"; border.color: "#f38ba8"; border.width: 1
-                                        Text { anchors.centerIn: parent; text: "Disconnect"; color: "#f38ba8"; font.pixelSize: Style.font.small ? Style.font.small - 1 : 10; font.bold: true }
+                                        width: parent.width * 0.30 - Style.space(6); height: Style.space(24); radius: 4; color: root.thLossBg; border.color: root.thLoss; border.width: 1
+                                        Text { anchors.centerIn: parent; text: "Disconnect"; color: root.thLoss; font.pixelSize: Style.font.small ? Style.font.small - 1 : 10; font.bold: true }
                                         MouseArea {
                                             anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !ctradeProc.running
                                             onClicked: {
@@ -6020,7 +6256,7 @@ Panel {
 
                             Text {
                                 width: parent.width; visible: root.ctradeStatusMessage.length > 0
-                                text: root.ctradeStatusMessage; color: root.ctradeStatusError ? "#f38ba8" : "#a6e3a1"
+                                text: root.ctradeStatusMessage; color: root.ctradeStatusError ? root.thLoss : root.thGain
                                 font.pixelSize: Style.font.small ? Style.font.small - 1 : 10; wrapMode: Text.WordWrap
                             }
                         }
@@ -6031,7 +6267,7 @@ Panel {
                         id: noteImportCard
                         width: parent.width
                         height: noteImpCol.implicitHeight + Style.space(12)
-                        radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
+                        radius: 8; color: root.thBgCard; border.color: root.thBorder; border.width: 1
 
                         Column {
                             id: noteImpCol
@@ -6043,8 +6279,8 @@ Panel {
                                 Column {
                                     width: parent.width - noteModeTog.width - Style.space(6)
                                     anchors.verticalCenter: parent.verticalCenter
-                                    Text { text: "Contract Note PDF / Text Importer (Morgan & Co • pdftotext)"; color: "#89dceb"; font.pixelSize: Style.font.body; font.bold: true }
-                                    Text { text: "Parse exact Brokerage, VAT, Platform, SECZ, Stamp & CGT straight into your FIFO ledger with duplicate protection"; color: "#6c7086"; font.pixelSize: 9; elide: Text.ElideRight; width: parent.width }
+                                    Text { text: "Contract Note PDF / Text Importer (Morgan & Co • pdftotext)"; color: root.thInfo; font.pixelSize: Style.font.body; font.bold: true }
+                                    Text { text: "Parse exact Brokerage, VAT, Platform, SECZ, Stamp & CGT straight into your FIFO ledger with duplicate protection"; color: root.thTextDim; font.pixelSize: 9; elide: Text.ElideRight; width: parent.width }
                                 }
                                 Row {
                                     id: noteModeTog; spacing: 3; anchors.verticalCenter: parent.verticalCenter
@@ -6055,8 +6291,8 @@ Panel {
                                         ]
                                         delegate: Rectangle {
                                             width: nmtLbl.implicitWidth + 10; height: Style.space(20); radius: 4
-                                            color: root.notePasteMode === modelData.paste ? "#89dceb" : "#313244"
-                                            Text { id: nmtLbl; anchors.centerIn: parent; text: modelData.label; color: root.notePasteMode === modelData.paste ? "#1e1e2e" : "#cdd6f4"; font.pixelSize: 9; font.bold: true }
+                                            color: root.notePasteMode === modelData.paste ? root.thInfo : root.thBgElevated
+                                            Text { id: nmtLbl; anchors.centerIn: parent; text: modelData.label; color: root.notePasteMode === modelData.paste ? root.thOnAccent : root.thTextPrimary; font.pixelSize: 9; font.bold: true }
                                             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { root.notePasteMode = modelData.paste; root.notePreviewData = null; root.notePreviewErr = "" } }
                                         }
                                     }
@@ -6067,14 +6303,14 @@ Panel {
                             Flow {
                                 width: parent.width; spacing: 4
                                 visible: !root.notePasteMode && (root.summaryData.local_pdfs || []).length > 0
-                                Text { text: "~/Downloads PDFs:"; color: "#6c7086"; font.pixelSize: 9 }
+                                Text { text: "~/Downloads PDFs:"; color: root.thTextDim; font.pixelSize: 9 }
                                 Repeater {
                                     model: (root.summaryData.local_pdfs || []).slice(0, 4)
                                     delegate: Rectangle {
                                         width: dlPdfTxt.implicitWidth + 10; height: Style.space(18); radius: 4
-                                        color: root.noteFilePath === modelData.path ? "#1e2e4a" : "#11111b"
-                                        border.color: root.noteFilePath === modelData.path ? "#89b4fa" : "#313244"; border.width: 1
-                                        Text { id: dlPdfTxt; anchors.centerIn: parent; text: String(modelData.name || "").slice(0, 28); color: "#89b4fa"; font.pixelSize: 8; font.bold: true }
+                                        color: root.noteFilePath === modelData.path ? root.thAccentBg : root.thBgSubtle
+                                        border.color: root.noteFilePath === modelData.path ? root.thAccent : root.thBgElevated; border.width: 1
+                                        Text { id: dlPdfTxt; anchors.centerIn: parent; text: String(modelData.name || "").slice(0, 28); color: root.thAccent; font.pixelSize: 8; font.bold: true }
                                         MouseArea {
                                             anchors.fill: parent; cursorShape: Qt.PointingHandCursor
                                             onClicked: {
@@ -6094,35 +6330,35 @@ Panel {
                                 Rectangle {
                                     width: parent.width - previewNoteBtn.width - Style.space(6)
                                     height: root.notePasteMode ? Style.space(48) : Style.space(26)
-                                    radius: 4; color: "#313244"
-                                    border.color: (notePathInput.activeFocus || noteTextArea.activeFocus) ? "#89dceb" : "#45475a"; border.width: 1
+                                    radius: 4; color: root.thBgElevated
+                                    border.color: (notePathInput.activeFocus || noteTextArea.activeFocus) ? root.thInfo : root.thBorderStrong; border.width: 1
 
                                     TextInput {
                                         id: notePathInput
                                         visible: !root.notePasteMode
-                                        anchors.fill: parent; anchors.margins: Style.space(5); color: "#cdd6f4"; font.pixelSize: Style.font.small || Style.font.body; verticalAlignment: TextInput.AlignVCenter; clip: true
+                                        anchors.fill: parent; anchors.margins: Style.space(5); color: root.thTextPrimary; font.pixelSize: Style.font.small || Style.font.body; verticalAlignment: TextInput.AlignVCenter; clip: true
                                         Component.onCompleted: text = root.noteFilePath
                                         onTextChanged: if (root.noteFilePath !== text) root.noteFilePath = text
                                         Connections { target: root; function onNoteFilePathChanged() { if (notePathInput.text !== root.noteFilePath) notePathInput.text = root.noteFilePath } }
-                                        Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Path to Morgan & Co .pdf / .txt (e.g. ~/Downloads/contract.pdf)"; color: "#6c7086"; font: notePathInput.font; visible: !notePathInput.text && !notePathInput.activeFocus }
+                                        Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Path to Morgan & Co .pdf / .txt (e.g. ~/Downloads/contract.pdf)"; color: root.thTextDim; font: notePathInput.font; visible: !notePathInput.text && !notePathInput.activeFocus }
                                     }
 
                                     TextEdit {
                                         id: noteTextArea
                                         visible: root.notePasteMode
-                                        anchors.fill: parent; anchors.margins: Style.space(5); color: "#cdd6f4"; font.pixelSize: 9; wrapMode: TextEdit.Wrap; clip: true
+                                        anchors.fill: parent; anchors.margins: Style.space(5); color: root.thTextPrimary; font.pixelSize: 9; wrapMode: TextEdit.Wrap; clip: true
                                         Component.onCompleted: text = root.noteRawText
                                         onTextChanged: if (root.noteRawText !== text) root.noteRawText = text
                                         Connections { target: root; function onNoteRawTextChanged() { if (noteTextArea.text !== root.noteRawText) noteTextArea.text = root.noteRawText } }
-                                        Text { anchors.fill: parent; text: "Paste Morgan & Co contract note text here..."; color: "#6c7086"; font: noteTextArea.font; visible: !noteTextArea.text && !noteTextArea.activeFocus }
+                                        Text { anchors.fill: parent; text: "Paste Morgan & Co contract note text here..."; color: root.thTextDim; font: noteTextArea.font; visible: !noteTextArea.text && !noteTextArea.activeFocus }
                                     }
                                 }
 
                                 Rectangle {
                                     id: previewNoteBtn
                                     anchors.verticalCenter: parent.verticalCenter
-                                    width: pvBtnTxt.implicitWidth + 14; height: Style.space(26); radius: 4; color: notePreviewProc.running ? "#45475a" : "#1e2e4a"; border.color: "#89b4fa"; border.width: 1
-                                    Text { id: pvBtnTxt; anchors.centerIn: parent; text: notePreviewProc.running ? "Parsing..." : "Preview Note"; color: "#89b4fa"; font.pixelSize: 9; font.bold: true }
+                                    width: pvBtnTxt.implicitWidth + 14; height: Style.space(26); radius: 4; color: notePreviewProc.running ? root.thBorderStrong : root.thAccentBg; border.color: root.thAccent; border.width: 1
+                                    Text { id: pvBtnTxt; anchors.centerIn: parent; text: notePreviewProc.running ? "Parsing..." : "Preview Note"; color: root.thAccent; font.pixelSize: 9; font.bold: true }
                                     MouseArea {
                                         anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !notePreviewProc.running
                                         onClicked: {
@@ -6147,7 +6383,7 @@ Panel {
                                 width: parent.width
                                 visible: root.notePreviewErr.length > 0
                                 text: "⚠ " + root.notePreviewErr
-                                color: "#f38ba8"; font.pixelSize: 9; wrapMode: Text.WordWrap
+                                color: root.thLoss; font.pixelSize: 9; wrapMode: Text.WordWrap
                             }
 
                             // Parsed Contract Note Preview + Commit Controls
@@ -6155,8 +6391,8 @@ Panel {
                                 width: parent.width
                                 visible: Boolean(root.notePreviewData && root.notePreviewData.ok)
                                 height: npvCol.implicitHeight + Style.space(10)
-                                radius: 6; color: "#11111b"
-                                border.color: Boolean((root.notePreviewData || ({})).duplicate) ? "#f9e2af" : "#a6e3a1"; border.width: 1
+                                radius: 6; color: root.thBgSubtle
+                                border.color: Boolean((root.notePreviewData || ({})).duplicate) ? root.thWarn : root.thGain; border.width: 1
 
                                 Column {
                                     id: npvCol
@@ -6171,7 +6407,7 @@ Panel {
                                             width: parent.width - npvBtnsRow.width - 6
                                             anchors.verticalCenter: parent.verticalCenter
                                             text: (npvCol.pv.broker || "Note") + ": " + (npvCol.pv.side || "BUY") + " " + Number(npvCol.pv.shares || 0) + " " + (npvCol.pv.symbol || "") + " @ " + root.fmtPrice(npvCol.pv.price, npvCol.pv.currency) + " (" + (npvCol.pv.date || "") + ")" + (npvCol.pv.duplicate ? "  [⚠ ALREADY IN LEDGER]" : "")
-                                            color: npvCol.pv.duplicate ? "#f9e2af" : "#a6e3a1"
+                                            color: npvCol.pv.duplicate ? root.thWarn : root.thGain
                                             font.pixelSize: 9; font.bold: true; wrapMode: Text.WordWrap
                                         }
                                         Row {
@@ -6180,15 +6416,15 @@ Panel {
                                                 model: ["core", "swing"]
                                                 delegate: Rectangle {
                                                     width: tgLbl.implicitWidth + 8; height: Style.space(20); radius: 3
-                                                    color: root.noteImportTag === modelData ? (modelData === "core" ? "#1f3a27" : "#272138") : "#313244"
-                                                    Text { id: tgLbl; anchors.centerIn: parent; text: modelData.toUpperCase(); color: modelData === "core" ? "#a6e3a1" : "#cba6f7"; font.pixelSize: 8; font.bold: true }
+                                                    color: root.noteImportTag === modelData ? (modelData === "core" ? root.thGainBg : root.thAccentBg) : root.thBgElevated
+                                                    Text { id: tgLbl; anchors.centerIn: parent; text: modelData.toUpperCase(); color: modelData === "core" ? root.thGain : root.thSecondary; font.pixelSize: 8; font.bold: true }
                                                     MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.noteImportTag = modelData }
                                                 }
                                             }
                                             Rectangle {
                                                 width: impGoTxt.implicitWidth + 12; height: Style.space(20); radius: 4
-                                                color: manualProc.running ? "#45475a" : (npvCol.pv.duplicate ? "#2b261d" : "#a6e3a1")
-                                                Text { id: impGoTxt; anchors.centerIn: parent; text: npvCol.pv.duplicate ? "Re-Import" : "Import Trade"; color: npvCol.pv.duplicate ? "#f9e2af" : "#1e1e2e"; font.pixelSize: 9; font.bold: true }
+                                                color: manualProc.running ? root.thBorderStrong : (npvCol.pv.duplicate ? root.thWarnBg : root.thGain)
+                                                Text { id: impGoTxt; anchors.centerIn: parent; text: npvCol.pv.duplicate ? "Re-Import" : "Import Trade"; color: npvCol.pv.duplicate ? root.thWarn : root.thOnSecondary; font.pixelSize: 9; font.bold: true }
                                                 MouseArea {
                                                     anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running
                                                     onClicked: {
@@ -6214,7 +6450,7 @@ Panel {
                                     Text {
                                         width: parent.width
                                         text: "Gross " + root.fmtShortMoney(npvCol.pv.gross, npvCol.pv.currency) + "  •  Brokerage " + root.fmtShortMoney(npvCol.pcn.brokerage, npvCol.pv.currency) + "  •  VAT " + root.fmtShortMoney(npvCol.pcn.vat, npvCol.pv.currency) + "  •  Platform/SECZ " + root.fmtShortMoney(Number(npvCol.pcn.platform_levy || 0) + Number(npvCol.pcn.secz_levy || 0), npvCol.pv.currency) + "  •  Stamp Duty " + root.fmtShortMoney(npvCol.pcn.stamp_duty, npvCol.pv.currency) + "  •  Total Charges " + root.fmtShortMoney(npvCol.pv.total_charges, npvCol.pv.currency) + "  →  Net " + root.fmtShortMoney(npvCol.pv.net_settlement, npvCol.pv.currency)
-                                        color: "#a6adc8"; font.pixelSize: 8; wrapMode: Text.WordWrap
+                                        color: root.thTextMuted; font.pixelSize: 8; wrapMode: Text.WordWrap
                                     }
                                 }
                             }
@@ -6234,7 +6470,7 @@ Panel {
                                 width: parent.width
                                 visible: ((root.summaryData.portal_orders || []).length > 0) || ((root.summaryData.portal_transactions || []).length > 0) || Number(root.summaryData.wallet_cash_usd || 0) > 0 || Number(root.summaryData.wallet_cash_zwg || 0) > 0
                                 height: portalSyncCol.implicitHeight + Style.space(14)
-                                radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
+                                radius: 8; color: root.thBgCard; border.color: root.thBorder; border.width: 1
                                 Column {
                                     id: portalSyncCol
                                     anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(7) }
@@ -6242,42 +6478,42 @@ Panel {
                                     property var icp4: (root.summaryData.idle_cash_plan || ({}))
                                     Row {
                                         width: parent.width
-                                        Text { width: parent.width * 0.55; text: "Synced Portal Cash, Orders & History"; color: "#89dceb"; font.pixelSize: Style.font.body; font.bold: true }
+                                        Text { width: parent.width * 0.55; text: "Synced Portal Cash, Orders & History"; color: root.thInfo; font.pixelSize: Style.font.body; font.bold: true }
                                         Text {
                                             width: parent.width * 0.45; horizontalAlignment: Text.AlignRight
                                             text: "Idle Cash: $" + Number(portalSyncCol.icp4.total_deployable_usd || root.summaryData.wallet_cash_usd || 0).toFixed(2) + " USD • ZiG " + Number(portalSyncCol.icp4.total_deployable_zwg || root.summaryData.wallet_cash_zwg || 0).toFixed(2)
-                                            color: "#a6e3a1"; font.pixelSize: 9; font.bold: true; elide: Text.ElideLeft
+                                            color: root.thGain; font.pixelSize: 9; font.bold: true; elide: Text.ElideLeft
                                         }
                                     }
-                                    Text { visible: (root.summaryData.portal_orders || []).length > 0; text: "Open Working Orders (" + (root.summaryData.portal_orders || []).length + ")"; color: "#f9e2af"; font.pixelSize: 9; font.bold: true }
+                                    Text { visible: (root.summaryData.portal_orders || []).length > 0; text: "Open Working Orders (" + (root.summaryData.portal_orders || []).length + ")"; color: root.thWarn; font.pixelSize: 9; font.bold: true }
                                     Repeater {
                                         model: (root.summaryData.portal_orders || []).slice(0, 6)
                                         delegate: Row {
                                             width: portalSyncCol.width
-                                            Text { width: portalSyncCol.width * 0.25; text: modelData.side + " " + modelData.symbol; color: modelData.side === "SELL" ? "#f38ba8" : "#a6e3a1"; font.pixelSize: 9; font.bold: true }
-                                            Text { width: portalSyncCol.width * 0.45; text: Number(modelData.shares || 0) + " shares @ " + root.fmtPrice(modelData.price, modelData.currency); color: "#cdd6f4"; font.pixelSize: 9 }
-                                            Text { width: portalSyncCol.width * 0.30; horizontalAlignment: Text.AlignRight; text: modelData.status || "Active"; color: "#f9e2af"; font.pixelSize: 9 }
+                                            Text { width: portalSyncCol.width * 0.25; text: modelData.side + " " + modelData.symbol; color: modelData.side === "SELL" ? root.thLoss : root.thGain; font.pixelSize: 9; font.bold: true }
+                                            Text { width: portalSyncCol.width * 0.45; text: Number(modelData.shares || 0) + " shares @ " + root.fmtPrice(modelData.price, modelData.currency); color: root.thTextPrimary; font.pixelSize: 9 }
+                                            Text { width: portalSyncCol.width * 0.30; horizontalAlignment: Text.AlignRight; text: modelData.status || "Active"; color: root.thWarn; font.pixelSize: 9 }
                                         }
                                     }
-                                    Text { visible: (root.summaryData.portal_transactions || []).length > 0; text: "Portal Statements (" + (root.summaryData.portal_transactions || []).length + ")"; color: "#cba6f7"; font.pixelSize: 9; font.bold: true }
+                                    Text { visible: (root.summaryData.portal_transactions || []).length > 0; text: "Portal Statements (" + (root.summaryData.portal_transactions || []).length + ")"; color: root.thSecondary; font.pixelSize: 9; font.bold: true }
                                     Repeater {
                                         model: (root.summaryData.portal_transactions || []).slice(0, 8)
                                         delegate: Rectangle {
-                                            width: portalSyncCol.width; height: ptxRow.implicitHeight + 6; radius: 4; color: "#11111b"
+                                            width: portalSyncCol.width; height: ptxRow.implicitHeight + 6; radius: 4; color: root.thBgSubtle
                                             Row {
                                                 id: ptxRow
                                                 anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: 4 }
                                                 spacing: 4
-                                                Text { width: parent.width * 0.15; text: modelData.date || "--"; color: "#6c7086"; font.pixelSize: 8; anchors.verticalCenter: parent.verticalCenter }
-                                                Text { width: parent.width * 0.36; text: (modelData.symbol ? (modelData.symbol + " • ") : "") + (modelData.description || modelData.type); color: "#cdd6f4"; font.pixelSize: 8; elide: Text.ElideRight; anchors.verticalCenter: parent.verticalCenter }
-                                                Text { width: parent.width * 0.21; horizontalAlignment: Text.AlignRight; text: root.fmtShortMoney(modelData.amount, modelData.currency); color: "#89b4fa"; font.pixelSize: 8; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
+                                                Text { width: parent.width * 0.15; text: modelData.date || "--"; color: root.thTextDim; font.pixelSize: 8; anchors.verticalCenter: parent.verticalCenter }
+                                                Text { width: parent.width * 0.36; text: (modelData.symbol ? (modelData.symbol + " • ") : "") + (modelData.description || modelData.type); color: root.thTextPrimary; font.pixelSize: 8; elide: Text.ElideRight; anchors.verticalCenter: parent.verticalCenter }
+                                                Text { width: parent.width * 0.21; horizontalAlignment: Text.AlignRight; text: root.fmtShortMoney(modelData.amount, modelData.currency); color: root.thAccent; font.pixelSize: 8; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
                                                 Rectangle {
                                                     width: parent.width * 0.28 - 12; height: Style.space(18); radius: 3
-                                                    color: modelData.already_imported ? "#1f3a27" : ((modelData.trade_side === "BUY" || modelData.trade_side === "SELL" || modelData.trade_side === "DIV") ? "#1e2e4a" : "transparent")
+                                                    color: modelData.already_imported ? root.thGainBg : ((modelData.trade_side === "BUY" || modelData.trade_side === "SELL" || modelData.trade_side === "DIV") ? root.thAccentBg : "transparent")
                                                     Text {
                                                         anchors.centerIn: parent
                                                         text: modelData.already_imported ? "Imported" : (modelData.trade_side === "BUY" ? "Import Buy" : (modelData.trade_side === "SELL" ? "Import Sell" : (modelData.trade_side === "DIV" ? "Import Dividend" : "")))
-                                                        color: modelData.already_imported ? "#a6e3a1" : "#89b4fa"; font.pixelSize: 8; font.bold: true
+                                                        color: modelData.already_imported ? root.thGain : root.thAccent; font.pixelSize: 8; font.bold: true
                                                     }
                                                     MouseArea {
                                                         anchors.fill: parent; cursorShape: Qt.PointingHandCursor
@@ -6303,7 +6539,7 @@ Panel {
                             }
 
                             Rectangle {
-                                width: parent.width; height: ledgerCol.implicitHeight + Style.space(14); radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
+                                width: parent.width; height: ledgerCol.implicitHeight + Style.space(14); radius: 8; color: root.thBgCard; border.color: root.thBorder; border.width: 1
                                 Column {
                                     id: ledgerCol
                                     anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(7) }
@@ -6311,12 +6547,12 @@ Panel {
 
                                     Row {
                                         width: parent.width
-                                        Text { width: parent.width * 0.52; text: "Trade History Ledger (" + ((root.summaryData.trades || []).length) + ")"; color: "#cdd6f4"; font.pixelSize: Style.font.body; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
+                                        Text { width: parent.width * 0.52; text: "Trade History Ledger (" + ((root.summaryData.trades || []).length) + ")"; color: root.thTextPrimary; font.pixelSize: Style.font.body; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
                                         Row {
                                             width: parent.width * 0.48; spacing: Style.space(4); layoutDirection: Qt.RightToLeft
                                             Rectangle {
-                                                width: expCsvTxt.implicitWidth + 10; height: Style.space(20); radius: 4; color: "#313244"
-                                                Text { id: expCsvTxt; anchors.centerIn: parent; text: "Export CSV"; color: "#89b4fa"; font.pixelSize: 9; font.bold: true }
+                                                width: expCsvTxt.implicitWidth + 10; height: Style.space(20); radius: 4; color: root.thBgElevated
+                                                Text { id: expCsvTxt; anchors.centerIn: parent; text: "Export CSV"; color: root.thAccent; font.pixelSize: 9; font.bold: true }
                                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running
                                                     onClicked: {
                                                         var script = Qt.resolvedUrl("vfex.py").toString().replace("file://", "")
@@ -6325,8 +6561,8 @@ Panel {
                                                 }
                                             }
                                             Rectangle {
-                                                width: expMdTxt.implicitWidth + 10; height: Style.space(20); radius: 4; color: "#313244"
-                                                Text { id: expMdTxt; anchors.centerIn: parent; text: "Export Markdown"; color: "#a6e3a1"; font.pixelSize: 9; font.bold: true }
+                                                width: expMdTxt.implicitWidth + 10; height: Style.space(20); radius: 4; color: root.thBgElevated
+                                                Text { id: expMdTxt; anchors.centerIn: parent; text: "Export Markdown"; color: root.thGain; font.pixelSize: 9; font.bold: true }
                                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running
                                                     onClicked: {
                                                         var script = Qt.resolvedUrl("vfex.py").toString().replace("file://", "")
@@ -6339,28 +6575,28 @@ Panel {
 
                                     Text {
                                         width: parent.width; visible: root.toastMessage.length > 0
-                                        text: "✓ " + root.toastMessage; color: "#a6e3a1"; font.pixelSize: 9; elide: Text.ElideRight
+                                        text: "✓ " + root.toastMessage; color: root.thGain; font.pixelSize: 9; elide: Text.ElideRight
                                     }
-                                    Text { visible: (root.summaryData.trades || []).length === 0; text: "No trades recorded yet."; color: "#6c7086"; font.pixelSize: Style.font.small || Style.font.body }
+                                    Text { visible: (root.summaryData.trades || []).length === 0; text: "No trades recorded yet."; color: root.thTextDim; font.pixelSize: Style.font.small || Style.font.body }
 
                                     Repeater {
                                         model: (root.summaryData.trades || []).slice(0, 12)
                                         delegate: Rectangle {
-                                            width: ledgerCol.width; height: trRowInner.implicitHeight + 6; radius: 4; color: "#11111b"
+                                            width: ledgerCol.width; height: trRowInner.implicitHeight + 6; radius: 4; color: root.thBgSubtle
                                             Row {
                                                 id: trRowInner; anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; leftMargin: 5; rightMargin: 5 }
-                                                Text { width: parent.width * 0.20; text: modelData.date; color: "#6c7086"; font.pixelSize: 9; anchors.verticalCenter: parent.verticalCenter }
+                                                Text { width: parent.width * 0.20; text: modelData.date; color: root.thTextDim; font.pixelSize: 9; anchors.verticalCenter: parent.verticalCenter }
                                                 Rectangle {
                                                     width: trActTxt.implicitWidth + 8; height: trActTxt.implicitHeight + 2; radius: 3; anchors.verticalCenter: parent.verticalCenter
-                                                    color: modelData.action === "SELL" ? "#3d2229" : "#243b2c"
-                                                    Text { id: trActTxt; anchors.centerIn: parent; text: modelData.action; color: modelData.action === "SELL" ? "#f38ba8" : "#a6e3a1"; font.pixelSize: 8; font.bold: true }
+                                                    color: modelData.action === "SELL" ? root.thLossBg : root.thGainBg
+                                                    Text { id: trActTxt; anchors.centerIn: parent; text: modelData.action; color: modelData.action === "SELL" ? root.thLoss : root.thGain; font.pixelSize: 8; font.bold: true }
                                                 }
                                                 Item { width: 4; height: 1 }
-                                                Text { width: parent.width * 0.14; text: modelData.symbol; color: "#cdd6f4"; font.pixelSize: 9; font.bold: true; anchors.verticalCenter: parent.verticalCenter; elide: Text.ElideRight }
-                                                Text { width: parent.width * 0.28; text: Number(modelData.shares) + "×" + root.fmtPrice(modelData.price, modelData.currency); color: "#a6adc8"; font.pixelSize: 9; anchors.verticalCenter: parent.verticalCenter }
-                                                Text { width: parent.width * 0.20; horizontalAlignment: Text.AlignRight; text: root.fmtShortMoney(Number(modelData.shares || 0) * Number(modelData.price || 0), modelData.currency) + (modelData.contract_note ? (" (+" + root.fmtShortMoney(modelData.contract_note.total_charges, modelData.currency) + ")") : ""); color: modelData.contract_note ? "#89dceb" : "#cdd6f4"; font.pixelSize: 9; font.bold: true; anchors.verticalCenter: parent.verticalCenter; elide: Text.ElideLeft }
+                                                Text { width: parent.width * 0.14; text: modelData.symbol; color: root.thTextPrimary; font.pixelSize: 9; font.bold: true; anchors.verticalCenter: parent.verticalCenter; elide: Text.ElideRight }
+                                                Text { width: parent.width * 0.28; text: Number(modelData.shares) + "×" + root.fmtPrice(modelData.price, modelData.currency); color: root.thTextMuted; font.pixelSize: 9; anchors.verticalCenter: parent.verticalCenter }
+                                                Text { width: parent.width * 0.20; horizontalAlignment: Text.AlignRight; text: root.fmtShortMoney(Number(modelData.shares || 0) * Number(modelData.price || 0), modelData.currency) + (modelData.contract_note ? (" (+" + root.fmtShortMoney(modelData.contract_note.total_charges, modelData.currency) + ")") : ""); color: modelData.contract_note ? root.thInfo : root.thTextPrimary; font.pixelSize: 9; font.bold: true; anchors.verticalCenter: parent.verticalCenter; elide: Text.ElideLeft }
                                                 Text {
-                                                    width: Math.max(14, parent.width * 0.08 - 4); horizontalAlignment: Text.AlignRight; text: "×"; color: "#f38ba8"; font.pixelSize: Style.font.body; font.bold: true
+                                                    width: Math.max(14, parent.width * 0.08 - 4); horizontalAlignment: Text.AlignRight; text: "×"; color: root.thLoss; font.pixelSize: Style.font.body; font.bold: true
                                                     MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running
                                                         onClicked: {
                                                             var script = Qt.resolvedUrl("vfex.py").toString().replace("file://", "")
@@ -6376,56 +6612,56 @@ Panel {
 
                             // Dividends Card with inline Record Dividend form
                             Rectangle {
-                                width: parent.width; height: divHistCol.implicitHeight + Style.space(12); radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
+                                width: parent.width; height: divHistCol.implicitHeight + Style.space(12); radius: 8; color: root.thBgCard; border.color: root.thBorder; border.width: 1
                                 Column {
                                     id: divHistCol
                                     anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(7) }
                                     spacing: Style.space(4)
                                     Row {
                                         width: parent.width
-                                        Text { width: parent.width - addDivTog.width - 6; anchors.verticalCenter: parent.verticalCenter; text: "Dividends History (" + (root.summaryData.dividends || []).length + ")"; color: "#94e2d5"; font.pixelSize: Style.font.small || Style.font.body; font.bold: true }
+                                        Text { width: parent.width - addDivTog.width - 6; anchors.verticalCenter: parent.verticalCenter; text: "Dividends History (" + (root.summaryData.dividends || []).length + ")"; color: root.thGain; font.pixelSize: Style.font.small || Style.font.body; font.bold: true }
                                         Rectangle {
                                             id: addDivTog; anchors.verticalCenter: parent.verticalCenter
                                             width: addDivLbl.implicitWidth + 12; height: Style.space(20); radius: 4
-                                            color: root.divAddOpen ? "#94e2d5" : "#1b2e33"; border.color: "#94e2d5"; border.width: 1
-                                            Text { id: addDivLbl; anchors.centerIn: parent; text: root.divAddOpen ? "Close" : "+ Record Dividend"; color: root.divAddOpen ? "#1e1e2e" : "#94e2d5"; font.pixelSize: 9; font.bold: true }
+                                            color: root.divAddOpen ? root.thGain : root.thAccentBg; border.color: root.thGain; border.width: 1
+                                            Text { id: addDivLbl; anchors.centerIn: parent; text: root.divAddOpen ? "Close" : "+ Record Dividend"; color: root.divAddOpen ? root.thOnSecondary : root.thGain; font.pixelSize: 9; font.bold: true }
                                             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.divAddOpen = !root.divAddOpen }
                                         }
                                     }
                                     Rectangle {
                                         width: divHistCol.width; visible: root.divAddOpen
-                                        height: divFormRow.implicitHeight + Style.space(10); radius: 6; color: "#11111b"; border.color: "#94e2d5"; border.width: 1
+                                        height: divFormRow.implicitHeight + Style.space(10); radius: 6; color: root.thBgSubtle; border.color: root.thGain; border.width: 1
                                         Row {
                                             id: divFormRow
                                             anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: Style.space(6) }
                                             spacing: Style.space(4)
                                             Rectangle {
-                                                width: parent.width * 0.24; height: Style.space(24); radius: 4; color: "#313244"; border.color: "#45475a"; border.width: 1
+                                                width: parent.width * 0.24; height: Style.space(24); radius: 4; color: root.thBgElevated; border.color: root.thBorderStrong; border.width: 1
                                                 TextInput {
-                                                    id: dvSymIn; anchors.fill: parent; anchors.margins: 4; color: "#cdd6f4"; font.pixelSize: Style.font.small || Style.font.body
+                                                    id: dvSymIn; anchors.fill: parent; anchors.margins: 4; color: root.thTextPrimary; font.pixelSize: Style.font.small || Style.font.body
                                                     text: root.divAddSym; onTextChanged: if (root.divAddSym !== text) root.divAddSym = text
-                                                    Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Symbol"; color: "#6c7086"; font: dvSymIn.font; visible: !dvSymIn.text && !dvSymIn.activeFocus }
+                                                    Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Symbol"; color: root.thTextDim; font: dvSymIn.font; visible: !dvSymIn.text && !dvSymIn.activeFocus }
                                                 }
                                             }
                                             Rectangle {
-                                                width: parent.width * 0.24; height: Style.space(24); radius: 4; color: "#313244"; border.color: "#45475a"; border.width: 1
+                                                width: parent.width * 0.24; height: Style.space(24); radius: 4; color: root.thBgElevated; border.color: root.thBorderStrong; border.width: 1
                                                 TextInput {
-                                                    id: dvAmtIn; anchors.fill: parent; anchors.margins: 4; color: "#cdd6f4"; font.pixelSize: Style.font.small || Style.font.body
+                                                    id: dvAmtIn; anchors.fill: parent; anchors.margins: 4; color: root.thTextPrimary; font.pixelSize: Style.font.small || Style.font.body
                                                     text: root.divAddAmt; onTextChanged: if (root.divAddAmt !== text) root.divAddAmt = text
-                                                    Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Amount $"; color: "#6c7086"; font: dvAmtIn.font; visible: !dvAmtIn.text && !dvAmtIn.activeFocus }
+                                                    Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Amount $"; color: root.thTextDim; font: dvAmtIn.font; visible: !dvAmtIn.text && !dvAmtIn.activeFocus }
                                                 }
                                             }
                                             Rectangle {
-                                                width: parent.width * 0.26; height: Style.space(24); radius: 4; color: "#313244"; border.color: "#45475a"; border.width: 1
+                                                width: parent.width * 0.26; height: Style.space(24); radius: 4; color: root.thBgElevated; border.color: root.thBorderStrong; border.width: 1
                                                 TextInput {
-                                                    id: dvDtIn; anchors.fill: parent; anchors.margins: 4; color: "#cdd6f4"; font.pixelSize: Style.font.small || Style.font.body
+                                                    id: dvDtIn; anchors.fill: parent; anchors.margins: 4; color: root.thTextPrimary; font.pixelSize: Style.font.small || Style.font.body
                                                     text: root.divAddDate; onTextChanged: if (root.divAddDate !== text) root.divAddDate = text
-                                                    Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Date (Optional)"; color: "#6c7086"; font: dvDtIn.font; visible: !dvDtIn.text && !dvDtIn.activeFocus }
+                                                    Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Date (Optional)"; color: root.thTextDim; font: dvDtIn.font; visible: !dvDtIn.text && !dvDtIn.activeFocus }
                                                 }
                                             }
                                             Rectangle {
-                                                width: parent.width * 0.26 - Style.space(12); height: Style.space(24); radius: 4; color: "#94e2d5"
-                                                Text { anchors.centerIn: parent; text: "Save"; color: "#1e1e2e"; font.pixelSize: 10; font.bold: true }
+                                                width: parent.width * 0.26 - Style.space(12); height: Style.space(24); radius: 4; color: root.thGain
+                                                Text { anchors.centerIn: parent; text: "Save"; color: root.thOnSecondary; font.pixelSize: 10; font.bold: true }
                                                 MouseArea {
                                                     anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running
                                                     onClicked: {
@@ -6443,14 +6679,14 @@ Panel {
                                             }
                                         }
                                     }
-                                    Text { visible: (root.summaryData.dividends || []).length === 0 && !root.divAddOpen; text: "No dividends recorded yet."; color: "#6c7086"; font.pixelSize: 9 }
+                                    Text { visible: (root.summaryData.dividends || []).length === 0 && !root.divAddOpen; text: "No dividends recorded yet."; color: root.thTextDim; font.pixelSize: 9 }
                                     Repeater {
                                         model: (root.summaryData.dividends || []).slice(0, 6)
                                         delegate: Row {
                                             width: divHistCol.width
-                                            Text { width: divHistCol.width * 0.30; text: modelData.date || "--"; color: "#6c7086"; font.pixelSize: 9 }
-                                            Text { width: divHistCol.width * 0.35; text: modelData.symbol; color: "#cdd6f4"; font.pixelSize: 9; font.bold: true }
-                                            Text { width: divHistCol.width * 0.35; horizontalAlignment: Text.AlignRight; text: "+$" + Number(modelData.amount || 0).toFixed(2); color: "#a6e3a1"; font.pixelSize: 9; font.bold: true }
+                                            Text { width: divHistCol.width * 0.30; text: modelData.date || "--"; color: root.thTextDim; font.pixelSize: 9 }
+                                            Text { width: divHistCol.width * 0.35; text: modelData.symbol; color: root.thTextPrimary; font.pixelSize: 9; font.bold: true }
+                                            Text { width: divHistCol.width * 0.35; horizontalAlignment: Text.AlignRight; text: "+$" + Number(modelData.amount || 0).toFixed(2); color: root.thGain; font.pixelSize: 9; font.bold: true }
                                         }
                                     }
                                 }
@@ -6463,19 +6699,19 @@ Panel {
                             spacing: Style.space(8)
 
                             Rectangle {
-                                width: parent.width; height: protCol.implicitHeight + Style.space(12); radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
+                                width: parent.width; height: protCol.implicitHeight + Style.space(12); radius: 8; color: root.thBgCard; border.color: root.thBorder; border.width: 1
                                 Column {
                                     id: protCol
                                     anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(7) }
                                     spacing: Style.space(4)
-                                    Text { text: "Stops & Alerts (" + ((root.summaryData.trailing_stops || []).length + (root.summaryData.active_alerts || []).length) + ")"; color: "#f9e2af"; font.pixelSize: Style.font.small || Style.font.body; font.bold: true }
-                                    Text { visible: (root.summaryData.trailing_stops || []).length === 0 && (root.summaryData.active_alerts || []).length === 0; text: "No active stops or price alerts."; color: "#6c7086"; font.pixelSize: 9 }
+                                    Text { text: "Stops & Alerts (" + ((root.summaryData.trailing_stops || []).length + (root.summaryData.active_alerts || []).length) + ")"; color: root.thWarn; font.pixelSize: Style.font.small || Style.font.body; font.bold: true }
+                                    Text { visible: (root.summaryData.trailing_stops || []).length === 0 && (root.summaryData.active_alerts || []).length === 0; text: "No active stops or price alerts."; color: root.thTextDim; font.pixelSize: 9 }
                                     Repeater {
                                         model: root.summaryData.trailing_stops || []
                                         delegate: Row {
                                             width: protCol.width
-                                            Text { width: protCol.width * 0.85; text: "🛡 " + modelData.symbol + " -" + Number(modelData.trail_pct || 0).toFixed(1) + "% (Peak " + Number(modelData.peak_price || 0).toFixed(4) + ")"; color: "#f9e2af"; font.pixelSize: 9; elide: Text.ElideRight }
-                                            Text { width: protCol.width * 0.15; horizontalAlignment: Text.AlignRight; text: "×"; color: "#f38ba8"; font.pixelSize: Style.font.body; font.bold: true
+                                            Text { width: protCol.width * 0.85; text: "🛡 " + modelData.symbol + " -" + Number(modelData.trail_pct || 0).toFixed(1) + "% (Peak " + Number(modelData.peak_price || 0).toFixed(4) + ")"; color: root.thWarn; font.pixelSize: 9; elide: Text.ElideRight }
+                                            Text { width: protCol.width * 0.15; horizontalAlignment: Text.AlignRight; text: "×"; color: root.thLoss; font.pixelSize: Style.font.body; font.bold: true
                                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running
                                                     onClicked: {
                                                         var script = Qt.resolvedUrl("vfex.py").toString().replace("file://", "")
@@ -6489,8 +6725,8 @@ Panel {
                                         model: root.summaryData.active_alerts || []
                                         delegate: Row {
                                             width: protCol.width
-                                            Text { width: protCol.width * 0.85; text: "🔔 " + modelData.text; color: "#a6adc8"; font.pixelSize: 9; elide: Text.ElideRight }
-                                            Text { width: protCol.width * 0.15; horizontalAlignment: Text.AlignRight; text: "×"; color: "#f38ba8"; font.pixelSize: Style.font.body; font.bold: true
+                                            Text { width: protCol.width * 0.85; text: "🔔 " + modelData.text; color: root.thTextMuted; font.pixelSize: 9; elide: Text.ElideRight }
+                                            Text { width: protCol.width * 0.15; horizontalAlignment: Text.AlignRight; text: "×"; color: root.thLoss; font.pixelSize: Style.font.body; font.bold: true
                                                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running
                                                     onClicked: {
                                                         var script = Qt.resolvedUrl("vfex.py").toString().replace("file://", "")
@@ -6505,37 +6741,37 @@ Panel {
 
                             // Investment Thesis Notes Card
                             Rectangle {
-                                width: parent.width; height: notesCol.implicitHeight + Style.space(14); radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
+                                width: parent.width; height: notesCol.implicitHeight + Style.space(14); radius: 8; color: root.thBgCard; border.color: root.thBorder; border.width: 1
                                 Column {
                                     id: notesCol
                                     anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(7) }
                                     spacing: Style.space(5)
-                                    Text { text: "Investment Thesis Notes"; color: "#cdd6f4"; font.pixelSize: Style.font.small || Style.font.body; font.bold: true }
+                                    Text { text: "Investment Thesis Notes"; color: root.thTextPrimary; font.pixelSize: Style.font.small || Style.font.body; font.bold: true }
                                     Row {
                                         width: parent.width; spacing: Style.space(4)
                                         Rectangle {
-                                            width: parent.width * 0.25; height: Style.space(24); radius: 4; color: "#313244"; border.color: noteSymInput.activeFocus ? "#89b4fa" : "#45475a"; border.width: 1
+                                            width: parent.width * 0.25; height: Style.space(24); radius: 4; color: root.thBgElevated; border.color: noteSymInput.activeFocus ? root.thAccent : root.thBorderStrong; border.width: 1
                                             TextInput {
-                                                id: noteSymInput; anchors.fill: parent; anchors.margins: Style.space(4); color: "#cdd6f4"; font.pixelSize: Style.font.small || Style.font.body; verticalAlignment: TextInput.AlignVCenter; clip: true
+                                                id: noteSymInput; anchors.fill: parent; anchors.margins: Style.space(4); color: root.thTextPrimary; font.pixelSize: Style.font.small || Style.font.body; verticalAlignment: TextInput.AlignVCenter; clip: true
                                                 Component.onCompleted: text = root.noteSymText
                                                 onTextChanged: if (root.noteSymText !== text) root.noteSymText = text
                                                 Connections { target: root; function onNoteSymTextChanged() { if (noteSymInput.text !== root.noteSymText) noteSymInput.text = root.noteSymText } }
-                                                Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Symbol"; color: "#6c7086"; font: noteSymInput.font; visible: !noteSymInput.text && !noteSymInput.activeFocus }
+                                                Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Symbol"; color: root.thTextDim; font: noteSymInput.font; visible: !noteSymInput.text && !noteSymInput.activeFocus }
                                             }
                                         }
                                         Rectangle {
-                                            width: parent.width * 0.55 - Style.space(8); height: Style.space(24); radius: 4; color: "#313244"; border.color: noteBodyInput.activeFocus ? "#89b4fa" : "#45475a"; border.width: 1
+                                            width: parent.width * 0.55 - Style.space(8); height: Style.space(24); radius: 4; color: root.thBgElevated; border.color: noteBodyInput.activeFocus ? root.thAccent : root.thBorderStrong; border.width: 1
                                             TextInput {
-                                                id: noteBodyInput; anchors.fill: parent; anchors.margins: Style.space(4); color: "#cdd6f4"; font.pixelSize: Style.font.small || Style.font.body; verticalAlignment: TextInput.AlignVCenter; clip: true
+                                                id: noteBodyInput; anchors.fill: parent; anchors.margins: Style.space(4); color: root.thTextPrimary; font.pixelSize: Style.font.small || Style.font.body; verticalAlignment: TextInput.AlignVCenter; clip: true
                                                 Component.onCompleted: text = root.noteBodyText
                                                 onTextChanged: if (root.noteBodyText !== text) root.noteBodyText = text
                                                 Connections { target: root; function onNoteBodyTextChanged() { if (noteBodyInput.text !== root.noteBodyText) noteBodyInput.text = root.noteBodyText } }
-                                                Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Thesis..."; color: "#6c7086"; font: noteBodyInput.font; visible: !noteBodyInput.text && !noteBodyInput.activeFocus }
+                                                Text { anchors.fill: parent; verticalAlignment: Text.AlignVCenter; text: "Thesis..."; color: root.thTextDim; font: noteBodyInput.font; visible: !noteBodyInput.text && !noteBodyInput.activeFocus }
                                             }
                                         }
                                         Rectangle {
-                                            width: parent.width * 0.20; height: Style.space(24); radius: 4; color: "#a6e3a1"
-                                            Text { anchors.centerIn: parent; text: "Save"; color: "#1e1e2e"; font.pixelSize: 9; font.bold: true }
+                                            width: parent.width * 0.20; height: Style.space(24); radius: 4; color: root.thGain
+                                            Text { anchors.centerIn: parent; text: "Save"; color: root.thOnSecondary; font.pixelSize: 9; font.bold: true }
                                             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running
                                                 onClicked: {
                                                     var sy = root.noteSymText.trim().toUpperCase(); if (!sy) return
@@ -6548,17 +6784,17 @@ Panel {
                                     Repeater {
                                         model: Object.keys(root.summaryData.notes || ({}))
                                         delegate: Rectangle {
-                                            width: notesCol.width; height: noteCardRow.implicitHeight + 6; radius: 4; color: "#11111b"
+                                            width: notesCol.width; height: noteCardRow.implicitHeight + 6; radius: 4; color: root.thBgSubtle
                                             Row {
                                                 id: noteCardRow; anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: 4 }
                                                 Text {
                                                     width: parent.width * 0.88
                                                     text: modelData + ": " + ((root.summaryData.notes || ({}))[modelData] || "")
-                                                    color: "#a6adc8"; font.pixelSize: 9; wrapMode: Text.WordWrap
+                                                    color: root.thTextMuted; font.pixelSize: 9; wrapMode: Text.WordWrap
                                                     MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { root.activeTab = "overview"; root.chartSymbol = modelData } }
                                                 }
                                                 Text {
-                                                    width: parent.width * 0.12; horizontalAlignment: Text.AlignRight; text: "×"; color: "#f38ba8"; font.pixelSize: Style.font.body; font.bold: true
+                                                    width: parent.width * 0.12; horizontalAlignment: Text.AlignRight; text: "×"; color: root.thLoss; font.pixelSize: Style.font.body; font.bold: true
                                                     MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running
                                                         onClicked: {
                                                             var script = Qt.resolvedUrl("vfex.py").toString().replace("file://", "")
@@ -6589,7 +6825,7 @@ Panel {
                     Rectangle {
                         width: parent.width
                         height: agHeroCol.implicitHeight + Style.space(16)
-                        radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
+                        radius: 8; color: root.thBgCard; border.color: root.thBorder; border.width: 1
 
                         Column {
                             id: agHeroCol
@@ -6608,19 +6844,19 @@ Panel {
                                         spacing: Style.space(6)
                                         Text {
                                             text: "🤖 $100 Self-Learning Paper Agent"
-                                            color: "#cba6f7"
+                                            color: root.thSecondary
                                             font.family: root.bar ? root.bar.fontFamily : Style.font.family
                                             font.pixelSize: Style.font.body
                                             font.bold: true
                                         }
                                         Rectangle {
                                             width: agStTxt.implicitWidth + 10; height: agStTxt.implicitHeight + 3; radius: 4
-                                            color: agentTabCol.pa.enabled !== false ? "#1f3a27" : "#3d2229"
+                                            color: agentTabCol.pa.enabled !== false ? root.thGainBg : root.thLossBg
                                             anchors.verticalCenter: parent.verticalCenter
                                             Text {
                                                 id: agStTxt; anchors.centerIn: parent
                                                 text: agentTabCol.pa.enabled !== false ? "● AUTONOMOUS" : "⏸ PAUSED"
-                                                color: agentTabCol.pa.enabled !== false ? "#a6e3a1" : "#f38ba8"
+                                                color: agentTabCol.pa.enabled !== false ? root.thGain : root.thLoss
                                                 font.pixelSize: 8; font.bold: true
                                             }
                                         }
@@ -6628,19 +6864,19 @@ Panel {
                                             property var rg: (agentTabCol.pa.regime || ({}))
                                             property string rlbl: String(rg.label || "Neutral")
                                             width: rgTxt.implicitWidth + 10; height: rgTxt.implicitHeight + 3; radius: 4
-                                            color: rlbl === "Risk-On" ? "#1f3a27" : (rlbl === "Risk-Off" ? "#3d2229" : "#1e2e4a")
+                                            color: rlbl === "Risk-On" ? root.thGainBg : (rlbl === "Risk-Off" ? root.thLossBg : root.thAccentBg)
                                             anchors.verticalCenter: parent.verticalCenter
                                             Text {
                                                 id: rgTxt; anchors.centerIn: parent
                                                 text: parent.rlbl + " • " + Number(parent.rg.cash_floor_pct || 25).toFixed(0) + "% cash"
-                                                color: parent.rlbl === "Risk-On" ? "#a6e3a1" : (parent.rlbl === "Risk-Off" ? "#f38ba8" : "#89b4fa")
+                                                color: parent.rlbl === "Risk-On" ? root.thGain : (parent.rlbl === "Risk-Off" ? root.thLoss : root.thAccent)
                                                 font.pixelSize: 8; font.bold: true
                                             }
                                         }
                                     }
                                     Text {
                                         text: "All-Market (VFEX USD $80 + ZSE ZWG $20 @ " + Number(agentTabCol.pa.zwg_rate || 26.5).toFixed(1) + ") • Minimum holds (3-Day Swing / 14-Day Core) • Contract note fees"
-                                        color: "#6c7086"; font.pixelSize: 9; elide: Text.ElideRight; width: parent.width
+                                        color: root.thTextDim; font.pixelSize: 9; elide: Text.ElideRight; width: parent.width
                                     }
                                 }
 
@@ -6649,28 +6885,28 @@ Panel {
                                     spacing: 4
                                     anchors.verticalCenter: parent.verticalCenter
                                     Rectangle {
-                                        width: stpLbl.implicitWidth + 10; height: Style.space(22); radius: 4; color: "#243b2c"; border.color: "#a6e3a1"; border.width: 1
-                                        Text { id: stpLbl; anchors.centerIn: parent; text: manualProc.running ? "…" : "⚡ Step"; color: "#a6e3a1"; font.pixelSize: 9; font.bold: true }
+                                        width: stpLbl.implicitWidth + 10; height: Style.space(22); radius: 4; color: root.thGainBg; border.color: root.thGain; border.width: 1
+                                        Text { id: stpLbl; anchors.centerIn: parent; text: manualProc.running ? "…" : "⚡ Step"; color: root.thGain; font.pixelSize: 9; font.bold: true }
                                         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running; onClicked: root.runAgentCli(["step"]) }
                                     }
                                     Rectangle {
-                                        width: trnLbl.implicitWidth + 10; height: Style.space(22); radius: 4; color: "#272138"; border.color: "#cba6f7"; border.width: 1
-                                        Text { id: trnLbl; anchors.centerIn: parent; text: "☸ Train"; color: "#cba6f7"; font.pixelSize: 9; font.bold: true }
+                                        width: trnLbl.implicitWidth + 10; height: Style.space(22); radius: 4; color: root.thAccentBg; border.color: root.thSecondary; border.width: 1
+                                        Text { id: trnLbl; anchors.centerIn: parent; text: "☸ Train"; color: root.thSecondary; font.pixelSize: 9; font.bold: true }
                                         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running; onClicked: root.runAgentCli(["train", "--days", "180"]) }
                                     }
                                     Rectangle {
-                                        width: rplLbl.implicitWidth + 10; height: Style.space(22); radius: 4; color: "#1e2e4a"; border.color: "#89b4fa"; border.width: 1
-                                        Text { id: rplLbl; anchors.centerIn: parent; text: "▶ Replay"; color: "#89b4fa"; font.pixelSize: 9; font.bold: true }
+                                        width: rplLbl.implicitWidth + 10; height: Style.space(22); radius: 4; color: root.thAccentBg; border.color: root.thAccent; border.width: 1
+                                        Text { id: rplLbl; anchors.centerIn: parent; text: "▶ Replay"; color: root.thAccent; font.pixelSize: 9; font.bold: true }
                                         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running; onClicked: root.runAgentCli(["replay", "--days", "30"]) }
                                     }
                                     Rectangle {
-                                        width: prsLbl.implicitWidth + 10; height: Style.space(22); radius: 4; color: "#313244"
-                                        Text { id: prsLbl; anchors.centerIn: parent; text: agentTabCol.pa.enabled !== false ? "⏸ Pause" : "▶ Resume"; color: "#f9e2af"; font.pixelSize: 9; font.bold: true }
+                                        width: prsLbl.implicitWidth + 10; height: Style.space(22); radius: 4; color: root.thBgElevated
+                                        Text { id: prsLbl; anchors.centerIn: parent; text: agentTabCol.pa.enabled !== false ? "⏸ Pause" : "▶ Resume"; color: root.thWarn; font.pixelSize: 9; font.bold: true }
                                         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running; onClicked: root.runAgentCli([agentTabCol.pa.enabled !== false ? "pause" : "resume"]) }
                                     }
                                     Rectangle {
-                                        width: rstLbl.implicitWidth + 10; height: Style.space(22); radius: 4; color: "#3d2229"
-                                        Text { id: rstLbl; anchors.centerIn: parent; text: "↺ $100"; color: "#f38ba8"; font.pixelSize: 9; font.bold: true }
+                                        width: rstLbl.implicitWidth + 10; height: Style.space(22); radius: 4; color: root.thLossBg
+                                        Text { id: rstLbl; anchors.centerIn: parent; text: "↺ $100"; color: root.thLoss; font.pixelSize: 9; font.bold: true }
                                         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !manualProc.running; onClicked: { root.selectedContractId = ""; root.runAgentCli(["reset", "--capital", "100"]) } }
                                     }
                                 }
@@ -6690,22 +6926,22 @@ Panel {
                                         var pnl = Number(p.net_pnl_usd || 0)
                                         var psg = pnl >= 0 ? "+" : "-"
                                         return [
-                                            { k: "Net Equity", v: "$" + eq.toFixed(2), sub: "Start $" + Number(p.starting_capital_usd || 100).toFixed(0), col: "#cdd6f4" },
-                                            { k: "Net Return", v: psg + "$" + Math.abs(pnl).toFixed(2) + " (" + (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%)", sub: (p.positions || []).length + " open positions", col: pnl >= 0 ? "#a6e3a1" : "#f38ba8" },
-                                            { k: "Cash Pools", v: "$" + Number(p.cash_usd || 0).toFixed(2) + " USD", sub: "ZiG " + Number(p.cash_zwg || 0).toFixed(2) + " ZSE", col: "#89dceb" },
-                                            { k: "Total Fees Paid", v: "$" + Number(p.total_fees_usd || 0).toFixed(2), sub: (p.trades || []).length + " contract fills", col: "#f9e2af" },
-                                            { k: "Mahoraga Brain", v: Number(p.win_rate_pct || 0).toFixed(0) + "% Win Rate", sub: (p.wins || 0) + " Wins / " + (p.losses || 0) + " Losses • " + Number((agentTabCol.paBrain || ({})).adaptations_spun || 0) + " adaptations", col: "#cba6f7" }
+                                            { k: "Net Equity", v: "$" + eq.toFixed(2), sub: "Start $" + Number(p.starting_capital_usd || 100).toFixed(0), col: root.thTextPrimary },
+                                            { k: "Net Return", v: psg + "$" + Math.abs(pnl).toFixed(2) + " (" + (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%)", sub: (p.positions || []).length + " open positions", col: pnl >= 0 ? root.thGain : root.thLoss },
+                                            { k: "Cash Pools", v: "$" + Number(p.cash_usd || 0).toFixed(2) + " USD", sub: "ZiG " + Number(p.cash_zwg || 0).toFixed(2) + " ZSE", col: root.thInfo },
+                                            { k: "Total Fees Paid", v: "$" + Number(p.total_fees_usd || 0).toFixed(2), sub: (p.trades || []).length + " contract fills", col: root.thWarn },
+                                            { k: "Mahoraga Brain", v: Number(p.win_rate_pct || 0).toFixed(0) + "% Win Rate", sub: (p.wins || 0) + " Wins / " + (p.losses || 0) + " Losses • " + Number((agentTabCol.paBrain || ({})).adaptations_spun || 0) + " adaptations", col: root.thSecondary }
                                         ]
                                     }
                                     delegate: Rectangle {
                                         width: root.wideLayout ? (agHeroCol.width - Style.space(24)) / 5 : (agHeroCol.width - Style.space(6)) / 2
-                                        height: Style.space(42); radius: 6; color: "#11111b"; border.color: "#242436"; border.width: 1
+                                        height: Style.space(42); radius: 6; color: root.thBgSubtle; border.color: root.thBgActiveTab; border.width: 1
                                         Column {
                                             anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: Style.space(6) }
                                             spacing: 1
-                                            Text { text: modelData.k; color: "#6c7086"; font.pixelSize: 9; elide: Text.ElideRight; width: parent.width }
+                                            Text { text: modelData.k; color: root.thTextDim; font.pixelSize: 9; elide: Text.ElideRight; width: parent.width }
                                             Text { text: modelData.v; color: modelData.col; font.pixelSize: Style.font.small || Style.font.body; font.bold: true; elide: Text.ElideRight; width: parent.width }
-                                            Text { text: modelData.sub; color: "#a6adc8"; font.pixelSize: 8; elide: Text.ElideRight; width: parent.width }
+                                            Text { text: modelData.sub; color: root.thTextMuted; font.pixelSize: 8; elide: Text.ElideRight; width: parent.width }
                                         }
                                     }
                                 }
@@ -6717,7 +6953,7 @@ Panel {
                     Rectangle {
                         width: parent.width
                         height: agChartCol.implicitHeight + Style.space(14)
-                        radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
+                        radius: 8; color: root.thBgCard; border.color: root.thBorder; border.width: 1
 
                         Column {
                             id: agChartCol
@@ -6730,7 +6966,7 @@ Panel {
                                 Text {
                                     width: parent.width * 0.50
                                     text: "Performance Over Time (Versus $100 Benchmark)"
-                                    color: "#89b4fa"; font.pixelSize: Style.font.body; font.bold: true
+                                    color: root.thAccent; font.pixelSize: Style.font.body; font.bold: true
                                 }
                                 Text {
                                     width: parent.width * 0.50; horizontalAlignment: Text.AlignRight
@@ -6742,7 +6978,7 @@ Panel {
                                         }
                                         return pts.length > 0 ? ("Latest " + pts[pts.length - 1].date + ": $" + Number(pts[pts.length - 1].equity_usd).toFixed(2)) : "Run Step or Replay"
                                     }
-                                    color: "#a6adc8"; font.pixelSize: 9; elide: Text.ElideLeft
+                                    color: root.thTextMuted; font.pixelSize: 9; elide: Text.ElideLeft
                                 }
                             }
 
@@ -6778,17 +7014,17 @@ Panel {
                                     for (var g = 0; g <= 2; g++) {
                                         var gv = mn + span * (1 - g * 0.5)
                                         var gy = yAt(gv)
-                                        ctx.strokeStyle = "#242436"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(pL, gy); ctx.lineTo(width - pR, gy); ctx.stroke()
-                                        ctx.fillStyle = "#6c7086"; ctx.fillText("$" + gv.toFixed(1), 0, gy)
+                                        ctx.strokeStyle = String(root.thBgActiveTab); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(pL, gy); ctx.lineTo(width - pR, gy); ctx.stroke()
+                                        ctx.fillStyle = String(root.thTextDim); ctx.fillText("$" + gv.toFixed(1), 0, gy)
                                     }
 
                                     // $100 dashed baseline
                                     var baseY = yAt(startCap)
-                                    ctx.save(); ctx.strokeStyle = "#6c7086"; ctx.lineWidth = 1.2; ctx.setLineDash([4, 3])
+                                    ctx.save(); ctx.strokeStyle = String(root.thTextDim); ctx.lineWidth = 1.2; ctx.setLineDash([4, 3])
                                     ctx.beginPath(); ctx.moveTo(pL, baseY); ctx.lineTo(width - pR, baseY); ctx.stroke(); ctx.restore()
 
                                     var lastEq = Number(plotPts[plotPts.length - 1].equity_usd || startCap)
-                                    var col = lastEq >= startCap ? "#a6e3a1" : "#f38ba8"
+                                    var col = lastEq >= startCap ? root.thGain : root.thLoss
                                     var grad = ctx.createLinearGradient(0, pT, 0, pT + pH)
                                     grad.addColorStop(0, lastEq >= startCap ? "rgba(166, 227, 161, 0.28)" : "rgba(243, 139, 168, 0.28)")
                                     grad.addColorStop(1, "rgba(0,0,0,0)")
@@ -6805,7 +7041,7 @@ Panel {
 
                                     for (var d = 0; d < plotPts.length; d++) {
                                         var isH = (pts.length > 1 && d === root.hoveredAgentEqIdx)
-                                        ctx.fillStyle = isH ? "#f9e2af" : col
+                                        ctx.fillStyle = isH ? String(root.thWarn) : col
                                         ctx.beginPath(); ctx.arc(xAt(d), yAt(Number(plotPts[d].equity_usd || startCap)), isH ? 4 : 2.5, 0, Math.PI * 2); ctx.fill()
                                     }
                                 }
@@ -6839,21 +7075,21 @@ Panel {
                             Rectangle {
                                 width: parent.width
                                 height: agPosCol.implicitHeight + Style.space(14)
-                                radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
+                                radius: 8; color: root.thBgCard; border.color: root.thBorder; border.width: 1
                                 Column {
                                     id: agPosCol
                                     anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(7) }
                                     spacing: Style.space(5)
-                                    Text { text: "Open Paper Positions (" + (agentTabCol.pa.positions || []).length + ")"; color: "#a6e3a1"; font.pixelSize: Style.font.body; font.bold: true }
+                                    Text { text: "Open Paper Positions (" + (agentTabCol.pa.positions || []).length + ")"; color: root.thGain; font.pixelSize: Style.font.body; font.bold: true }
                                     Text {
                                         visible: (agentTabCol.pa.positions || []).length === 0
                                         text: "No open paper positions right now — cash is waiting cleanly for high-conviction net-of-fee setups."
-                                        color: "#6c7086"; font.pixelSize: 10; wrapMode: Text.WordWrap; width: parent.width
+                                        color: root.thTextDim; font.pixelSize: 10; wrapMode: Text.WordWrap; width: parent.width
                                     }
                                     Repeater {
                                         model: agentTabCol.pa.positions || []
                                         delegate: Rectangle {
-                                            width: agPosCol.width; height: agPosRowCol.implicitHeight + 8; radius: 6; color: "#11111b"; border.color: "#242436"; border.width: 1
+                                            width: agPosCol.width; height: agPosRowCol.implicitHeight + 8; radius: 6; color: root.thBgSubtle; border.color: root.thBgActiveTab; border.width: 1
                                             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { root.chartSymbol = modelData.symbol; root.activeTab = "overview" } }
                                             Column {
                                                 id: agPosRowCol
@@ -6863,23 +7099,23 @@ Panel {
                                                     width: parent.width; spacing: 4
                                                     Rectangle {
                                                         width: posHzTxt.implicitWidth + 6; height: posHzTxt.implicitHeight + 2; radius: 3
-                                                        color: modelData.horizon === "CORE" ? "#1f3a27" : "#272138"
-                                                        Text { id: posHzTxt; anchors.centerIn: parent; text: modelData.horizon; color: modelData.horizon === "CORE" ? "#a6e3a1" : "#cba6f7"; font.pixelSize: 8; font.bold: true }
+                                                        color: modelData.horizon === "CORE" ? root.thGainBg : root.thAccentBg
+                                                        Text { id: posHzTxt; anchors.centerIn: parent; text: modelData.horizon; color: modelData.horizon === "CORE" ? root.thGain : root.thSecondary; font.pixelSize: 8; font.bold: true }
                                                     }
-                                                    Text { text: modelData.symbol; color: modelData.currency === "ZWG" ? "#f9e2af" : "#cdd6f4"; font.pixelSize: Style.font.body; font.bold: true }
-                                                    Text { text: modelData.shares + " shares @ " + root.fmtPrice(modelData.entry_price, modelData.currency) + " → " + root.fmtPrice(modelData.current_price, modelData.currency); color: "#a6adc8"; font.pixelSize: 9 }
+                                                    Text { text: modelData.symbol; color: modelData.currency === "ZWG" ? root.thWarn : root.thTextPrimary; font.pixelSize: Style.font.body; font.bold: true }
+                                                    Text { text: modelData.shares + " shares @ " + root.fmtPrice(modelData.entry_price, modelData.currency) + " → " + root.fmtPrice(modelData.current_price, modelData.currency); color: root.thTextMuted; font.pixelSize: 9 }
                                                 }
                                                 Row {
                                                     width: parent.width
                                                     Text {
                                                         width: parent.width * 0.58
                                                         text: "Held " + modelData.hold_days + " of " + modelData.min_hold_days + " days minimum • " + (modelData.playbook || "Signal") + (modelData.win_prob_pct ? (" (" + Number(modelData.win_prob_pct).toFixed(0) + "% probability)") : "")
-                                                        color: "#89b4fa"; font.pixelSize: 9; elide: Text.ElideRight
+                                                        color: root.thAccent; font.pixelSize: 9; elide: Text.ElideRight
                                                     }
                                                     Text {
                                                         width: parent.width * 0.42; horizontalAlignment: Text.AlignRight
                                                         text: "Net " + (Number(modelData.net_pnl_usd) >= 0 ? "+" : "-") + "$" + Math.abs(Number(modelData.net_pnl_usd)).toFixed(2) + " (" + (Number(modelData.net_pnl_pct) >= 0 ? "+" : "") + Number(modelData.net_pnl_pct).toFixed(1) + "%)"
-                                                        color: Number(modelData.net_pnl_usd) >= 0 ? "#a6e3a1" : "#f38ba8"
+                                                        color: Number(modelData.net_pnl_usd) >= 0 ? root.thGain : root.thLoss
                                                         font.pixelSize: 9; font.bold: true
                                                     }
                                                 }
@@ -6894,7 +7130,7 @@ Panel {
                                 width: parent.width
                                 visible: (agentTabCol.pa.radar || []).length > 0 || (agentTabCol.pa.shielded || []).length > 0 || (agentTabCol.pa.pending_orders || []).length > 0
                                 height: agRadCol.implicitHeight + Style.space(14)
-                                radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
+                                radius: 8; color: root.thBgCard; border.color: root.thBorder; border.width: 1
                                 Column {
                                     id: agRadCol
                                     anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(7) }
@@ -6903,29 +7139,29 @@ Panel {
                                         width: parent.width
                                         visible: (agentTabCol.pa.pending_orders || []).length > 0
                                         spacing: 3
-                                        Text { text: "⧖ Resting Smart Limit Orders (" + (agentTabCol.pa.pending_orders || []).length + ")"; color: "#f9e2af"; font.pixelSize: 9; font.bold: true }
+                                        Text { text: "⧖ Resting Smart Limit Orders (" + (agentTabCol.pa.pending_orders || []).length + ")"; color: root.thWarn; font.pixelSize: 9; font.bold: true }
                                         Repeater {
                                             model: agentTabCol.pa.pending_orders || []
                                             delegate: Rectangle {
-                                                width: agRadCol.width; height: pndTxt.implicitHeight + 6; radius: 4; color: "#1e1a12"; border.color: "#f9e2af"; border.width: 1
+                                                width: agRadCol.width; height: pndTxt.implicitHeight + 6; radius: 4; color: "#1e1a12"; border.color: root.thWarn; border.width: 1
                                                 Text {
                                                     id: pndTxt
                                                     anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: 5 }
                                                     text: modelData.symbol + " • Limit Price " + root.fmtPrice(modelData.limit_price, modelData.currency) + " (" + (modelData.playbook || "") + ") • Expires " + (modelData.expires_at || "")
-                                                    color: "#f9e2af"; font.pixelSize: 8; elide: Text.ElideRight
+                                                    color: root.thWarn; font.pixelSize: 8; elide: Text.ElideRight
                                                 }
                                             }
                                         }
                                     }
                                     Row {
                                         width: parent.width
-                                        Text { width: parent.width * 0.65; text: "◎ Mahoraga Next-Buy Radar"; color: "#89dceb"; font.pixelSize: Style.font.body; font.bold: true }
-                                        Text { width: parent.width * 0.35; horizontalAlignment: Text.AlignRight; text: (agentTabCol.pa.radar || []).length + " live setups"; color: "#6c7086"; font.pixelSize: 9 }
+                                        Text { width: parent.width * 0.65; text: "◎ Mahoraga Next-Buy Radar"; color: root.thInfo; font.pixelSize: Style.font.body; font.bold: true }
+                                        Text { width: parent.width * 0.35; horizontalAlignment: Text.AlignRight; text: (agentTabCol.pa.radar || []).length + " live setups"; color: root.thTextDim; font.pixelSize: 9 }
                                     }
                                     Repeater {
                                         model: (agentTabCol.pa.radar || []).slice(0, 4)
                                         delegate: Rectangle {
-                                            width: agRadCol.width; height: radRowCol.implicitHeight + 6; radius: 4; color: "#11111b"; border.color: "#242436"; border.width: 1
+                                            width: agRadCol.width; height: radRowCol.implicitHeight + 6; radius: 4; color: root.thBgSubtle; border.color: root.thBgActiveTab; border.width: 1
                                             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { root.chartSymbol = modelData.symbol; root.activeTab = "overview" } }
                                             Column {
                                                 id: radRowCol
@@ -6933,19 +7169,19 @@ Panel {
                                                 spacing: 1
                                                 Row {
                                                     width: parent.width; spacing: 4
-                                                    Text { text: modelData.symbol; color: modelData.currency === "ZWG" ? "#f9e2af" : "#cdd6f4"; font.pixelSize: 10; font.bold: true }
-                                                    Text { text: (modelData.playbook || "") + (modelData.stage_limit ? " [Limit]" : ""); color: modelData.stage_limit ? "#f9e2af" : "#89b4fa"; font.pixelSize: 8; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
+                                                    Text { text: modelData.symbol; color: modelData.currency === "ZWG" ? root.thWarn : root.thTextPrimary; font.pixelSize: 10; font.bold: true }
+                                                    Text { text: (modelData.playbook || "") + (modelData.stage_limit ? " [Limit]" : ""); color: modelData.stage_limit ? root.thWarn : root.thAccent; font.pixelSize: 8; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
                                                     Text {
                                                         width: Math.max(40, parent.width - 150)
                                                         horizontalAlignment: Text.AlignRight
                                                         text: Number(modelData.win_prob_pct || 0).toFixed(0) + "% probability (" + (Number(modelData.ucb_edge_pct || modelData.expected_net_pct || 0) >= 0 ? "+" : "") + Number(modelData.ucb_edge_pct || modelData.expected_net_pct || 0).toFixed(1) + "% edge)"
-                                                        color: Number(modelData.ucb_edge_pct || modelData.expected_net_pct || 0) >= 0 ? "#a6e3a1" : "#f9e2af"
+                                                        color: Number(modelData.ucb_edge_pct || modelData.expected_net_pct || 0) >= 0 ? root.thGain : root.thWarn
                                                         font.pixelSize: 8; font.bold: true; elide: Text.ElideLeft
                                                     }
                                                 }
                                                 Text {
                                                     text: "Score " + modelData.score + " • " + root.fmtReasonText((modelData.reasons || []).slice(0, 2).join(" • "))
-                                                    color: "#6c7086"; font.pixelSize: 8; elide: Text.ElideRight; width: parent.width
+                                                    color: root.thTextDim; font.pixelSize: 8; elide: Text.ElideRight; width: parent.width
                                                 }
                                             }
                                         }
@@ -6953,12 +7189,12 @@ Panel {
                                     Flow {
                                         width: parent.width; spacing: 4
                                         visible: (agentTabCol.pa.shielded || []).length > 0
-                                        Text { text: "Shielded:"; color: "#f38ba8"; font.pixelSize: 8; font.bold: true }
+                                        Text { text: "Shielded:"; color: root.thLoss; font.pixelSize: 8; font.bold: true }
                                         Repeater {
                                             model: (agentTabCol.pa.shielded || []).slice(0, 4)
                                             delegate: Rectangle {
-                                                width: shldTxt.implicitWidth + 8; height: Style.space(15); radius: 3; color: "#2b1d24"; border.color: "#f38ba8"; border.width: 1
-                                                Text { id: shldTxt; anchors.centerIn: parent; text: "🛡 " + modelData.symbol + ": " + modelData.block_reason; color: "#f38ba8"; font.pixelSize: 8 }
+                                                width: shldTxt.implicitWidth + 8; height: Style.space(15); radius: 3; color: root.thLossBg; border.color: root.thLoss; border.width: 1
+                                                Text { id: shldTxt; anchors.centerIn: parent; text: "🛡 " + modelData.symbol + ": " + modelData.block_reason; color: root.thLoss; font.pixelSize: 8 }
                                             }
                                         }
                                     }
@@ -6969,25 +7205,25 @@ Panel {
                             Rectangle {
                                 width: parent.width
                                 height: agBrainCol.implicitHeight + Style.space(14)
-                                radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
+                                radius: 8; color: root.thBgCard; border.color: root.thBorder; border.width: 1
                                 Column {
                                     id: agBrainCol
                                     anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(7) }
                                     spacing: Style.space(5)
                                     Row {
                                         width: parent.width
-                                        Text { width: parent.width * 0.46; text: "☸ Mahoraga Adaptation Brain"; color: "#cba6f7"; font.pixelSize: Style.font.body; font.bold: true; elide: Text.ElideRight }
+                                        Text { width: parent.width * 0.46; text: "☸ Mahoraga Adaptation Brain"; color: root.thSecondary; font.pixelSize: Style.font.body; font.bold: true; elide: Text.ElideRight }
                                         Text {
                                             width: parent.width * 0.54; horizontalAlignment: Text.AlignRight
                                             text: (agentTabCol.paBrain.adaptations_spun || 0) + " wheel spins • Minimum Score " + (agentTabCol.paWeights.min_entry_score || 22)
-                                            color: "#f9e2af"; font.pixelSize: 9; font.bold: true; elide: Text.ElideRight
+                                            color: root.thWarn; font.pixelSize: 9; font.bold: true; elide: Text.ElideRight
                                         }
                                     }
                                     Text {
                                         width: parent.width
                                         property var po: (agentTabCol.paBrain.payoffs || ({}))
                                         text: "Shadow Trades: " + (agentTabCol.paBrain.shadows_resolved || 0) + "/" + (agentTabCol.paBrain.shadows_total || 0) + " • Payoff Odds: Win +" + Number(po.avg_win_pct || 8.5).toFixed(1) + "% / Loss -" + Number(po.avg_loss_pct || 5.0).toFixed(1) + "%"
-                                        color: "#89dceb"; font.pixelSize: 9; elide: Text.ElideRight
+                                        color: root.thInfo; font.pixelSize: 9; elide: Text.ElideRight
                                     }
                                     // 4 Strategy Playbooks Performance Grid
                                     Grid {
@@ -6999,19 +7235,19 @@ Panel {
                                             model: agentTabCol.paBrain.playbooks || []
                                             delegate: Rectangle {
                                                 width: (agBrainCol.width - 6) / 2
-                                                height: pbCol.implicitHeight + 6; radius: 4; color: "#11111b"; border.color: "#242436"; border.width: 1
+                                                height: pbCol.implicitHeight + 6; radius: 4; color: root.thBgSubtle; border.color: root.thBgActiveTab; border.width: 1
                                                 Column {
                                                     id: pbCol
                                                     anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: 4 }
                                                     spacing: 1
                                                     Row {
                                                         width: parent.width
-                                                        Text { width: parent.width * 0.68; text: modelData.name; color: "#cdd6f4"; font.pixelSize: 8; font.bold: true; elide: Text.ElideRight }
-                                                        Text { width: parent.width * 0.32; horizontalAlignment: Text.AlignRight; text: Number(modelData.mult || 1.0).toFixed(2) + "×"; color: Number(modelData.mult || 1.0) >= 1.0 ? "#a6e3a1" : "#f38ba8"; font.pixelSize: 8; font.bold: true }
+                                                        Text { width: parent.width * 0.68; text: modelData.name; color: root.thTextPrimary; font.pixelSize: 8; font.bold: true; elide: Text.ElideRight }
+                                                        Text { width: parent.width * 0.32; horizontalAlignment: Text.AlignRight; text: Number(modelData.mult || 1.0).toFixed(2) + "×"; color: Number(modelData.mult || 1.0) >= 1.0 ? root.thGain : root.thLoss; font.pixelSize: 8; font.bold: true }
                                                     }
                                                     Text {
                                                         text: (modelData.wins || 0) + " Wins / " + (modelData.losses || 0) + " Losses" + (modelData.avg_net_pct !== null && modelData.avg_net_pct !== undefined ? (" • Average " + (Number(modelData.avg_net_pct) >= 0 ? "+" : "") + Number(modelData.avg_net_pct).toFixed(1) + "%") : " • Untested")
-                                                        color: "#a6adc8"; font.pixelSize: 8; elide: Text.ElideRight; width: parent.width
+                                                        color: root.thTextMuted; font.pixelSize: 8; elide: Text.ElideRight; width: parent.width
                                                     }
                                                 }
                                             }
@@ -7021,17 +7257,17 @@ Panel {
                                     Flow {
                                         width: parent.width; spacing: 4
                                         visible: (agentTabCol.paBrain.immunities || []).length > 0
-                                        Text { text: "Immunities:"; color: "#cba6f7"; font.pixelSize: 9; font.bold: true }
+                                        Text { text: "Immunities:"; color: root.thSecondary; font.pixelSize: 9; font.bold: true }
                                         Repeater {
                                             model: agentTabCol.paBrain.immunities || []
                                             delegate: Rectangle {
                                                 width: immChipTxt.implicitWidth + 10; height: Style.space(16); radius: 3
-                                                color: modelData.active ? "#272138" : "#1e1e2e"
-                                                border.color: modelData.active ? "#cba6f7" : "#45475a"; border.width: 1
+                                                color: modelData.active ? root.thAccentBg : root.thBgSubtle
+                                                border.color: modelData.active ? root.thSecondary : root.thBorderStrong; border.width: 1
                                                 Text {
                                                     id: immChipTxt; anchors.centerIn: parent
                                                     text: (modelData.active ? "🛡 " : "○ ") + modelData.label + " (" + (modelData.loss_count || 0) + ")"
-                                                    color: modelData.active ? "#cba6f7" : "#6c7086"; font.pixelSize: 8; font.bold: Boolean(modelData.active)
+                                                    color: modelData.active ? root.thSecondary : root.thTextDim; font.pixelSize: 8; font.bold: Boolean(modelData.active)
                                                 }
                                             }
                                         }
@@ -7040,7 +7276,7 @@ Panel {
                                         width: parent.width
                                         property var ep: (agentTabCol.paBrain.exit_policy || ({}))
                                         text: "Exit Policy: Caution Tier " + Number(ep.caution_exit_strictness || 0) + " • Take +" + Number(ep.swing_take_pct || 4.5).toFixed(1) + "% / ZSE +" + Number(ep.zse_take_pct || 6.5).toFixed(1) + "% • Stop " + Number(ep.hard_stop_pct || -8.0).toFixed(1) + "%"
-                                        color: "#94e2d5"; font.pixelSize: 8; elide: Text.ElideRight
+                                        color: root.thGain; font.pixelSize: 8; elide: Text.ElideRight
                                     }
                                     Rectangle {
                                         id: gkBox
@@ -7050,8 +7286,8 @@ Panel {
                                         width: parent.width
                                         height: gkCol.implicitHeight + 10
                                         radius: 5
-                                        color: "#11111b"
-                                        border.color: gkBox.gkSt === "Grokked (Active)" ? "#a6e3a1" : (gkBox.gkSt === "Memorizing (Gated)" ? "#f9e2af" : "#313244")
+                                        color: root.thBgSubtle
+                                        border.color: gkBox.gkSt === "Grokked (Active)" ? root.thGain : (gkBox.gkSt === "Memorizing (Gated)" ? root.thWarn : root.thBgElevated)
                                         border.width: 1
                                         Column {
                                             id: gkCol
@@ -7059,11 +7295,11 @@ Panel {
                                             spacing: 2
                                             Row {
                                                 width: parent.width
-                                                Text { width: parent.width * 0.56; text: "Grokking Generalization Engine"; color: "#cba6f7"; font.pixelSize: 8; font.bold: true; elide: Text.ElideRight }
+                                                Text { width: parent.width * 0.56; text: "Grokking Generalization Engine"; color: root.thSecondary; font.pixelSize: 8; font.bold: true; elide: Text.ElideRight }
                                                 Text {
                                                     width: parent.width * 0.44; horizontalAlignment: Text.AlignRight
                                                     text: gkBox.gkSt
-                                                    color: gkBox.gkSt === "Grokked (Active)" ? "#a6e3a1" : (gkBox.gkSt === "Memorizing (Gated)" ? "#f9e2af" : "#9399b2")
+                                                    color: gkBox.gkSt === "Grokked (Active)" ? root.thGain : (gkBox.gkSt === "Memorizing (Gated)" ? root.thWarn : "#9399b2")
                                                     font.pixelSize: 8; font.bold: true; elide: Text.ElideLeft
                                                 }
                                             }
@@ -7071,51 +7307,51 @@ Panel {
                                                 visible: Number(gkBox.gm.episodes_total || 0) < Number(gkBox.gm.min_episodes || 18)
                                                 width: parent.width; elide: Text.ElideRight
                                                 text: "Dataset: " + Number(gkBox.gm.episodes_total || 0) + "/" + Number(gkBox.gm.min_episodes || 18) + " chronological episodes needed for 70/30 out-of-sample split"
-                                                color: "#a6adc8"; font.pixelSize: 8
+                                                color: root.thTextMuted; font.pixelSize: 8
                                             }
                                             Text {
                                                 visible: Number(gkBox.gm.episodes_total || 0) >= Number(gkBox.gm.min_episodes || 18)
                                                 width: parent.width; elide: Text.ElideRight
                                                 text: "Train Accuracy: " + Number(gkBox.gm.train_acc_pct || 0).toFixed(1) + "% (" + Number(gkBox.gm.train_count || 0) + ") • Validation Accuracy: " + Number(gkBox.gm.val_acc_pct || 0).toFixed(1) + "% (" + Number(gkBox.gm.val_count || 0) + ")"
-                                                color: "#cdd6f4"; font.pixelSize: 8
+                                                color: root.thTextPrimary; font.pixelSize: 8
                                             }
                                             Text {
                                                 visible: Number(gkBox.gm.episodes_total || 0) >= Number(gkBox.gm.min_episodes || 18)
                                                 width: parent.width; elide: Text.ElideRight
                                                 text: "Epoch " + Number(gkBox.gm.best_epoch || 0) + "/" + Number(gkBox.gm.epochs_run || 0) + " • Weight L2 Norm: " + Number(gkBox.gm.weight_l2_norm || 0).toFixed(2) + " • Validation Loss " + Number(gkBox.gm.grok_val_loss || 0).toFixed(3) + " vs Linear " + Number(gkBox.gm.linear_val_loss || 0).toFixed(3)
-                                                color: "#89dceb"; font.pixelSize: 8
+                                                color: root.thInfo; font.pixelSize: 8
                                             }
                                         }
                                     }
                                     Repeater {
                                         model: [
-                                            { label: "Dip Depth", val: Number(agentTabCol.paWeights.dip_mult || 1.0), col: "#89b4fa" },
-                                            { label: "Relative Strength Oversold", val: Number(agentTabCol.paWeights.rsi_mult || 1.0), col: "#a6e3a1" },
-                                            { label: "Order-Book Imbalance", val: Number(agentTabCol.paWeights.book_mult || 1.0), col: "#89dceb" },
-                                            { label: "News Catalyst", val: Number(agentTabCol.paWeights.news_mult || 1.0), col: "#cba6f7" },
-                                            { label: "Daily Turnover", val: Number(agentTabCol.paWeights.volume_mult || 1.0), col: "#94e2d5" },
-                                            { label: "Spread Guard", val: Number(agentTabCol.paWeights.wide_spread_penalty || 1.0), col: "#f9e2af" },
-                                            { label: "ZSE Fee Hurdle", val: Number(agentTabCol.paWeights.zse_hurdle_mult || 1.0), col: "#f38ba8" }
+                                            { label: "Dip Depth", val: Number(agentTabCol.paWeights.dip_mult || 1.0), col: root.thAccent },
+                                            { label: "Relative Strength Oversold", val: Number(agentTabCol.paWeights.rsi_mult || 1.0), col: root.thGain },
+                                            { label: "Order-Book Imbalance", val: Number(agentTabCol.paWeights.book_mult || 1.0), col: root.thInfo },
+                                            { label: "News Catalyst", val: Number(agentTabCol.paWeights.news_mult || 1.0), col: root.thSecondary },
+                                            { label: "Daily Turnover", val: Number(agentTabCol.paWeights.volume_mult || 1.0), col: root.thGain },
+                                            { label: "Spread Guard", val: Number(agentTabCol.paWeights.wide_spread_penalty || 1.0), col: root.thWarn },
+                                            { label: "ZSE Fee Hurdle", val: Number(agentTabCol.paWeights.zse_hurdle_mult || 1.0), col: root.thLoss }
                                         ]
                                         delegate: Row {
                                             width: agBrainCol.width; spacing: 6
-                                            Text { width: agBrainCol.width * 0.34; text: modelData.label; color: "#a6adc8"; font.pixelSize: 9; anchors.verticalCenter: parent.verticalCenter }
+                                            Text { width: agBrainCol.width * 0.34; text: modelData.label; color: root.thTextMuted; font.pixelSize: 9; anchors.verticalCenter: parent.verticalCenter }
                                             Rectangle {
-                                                width: agBrainCol.width * 0.48; height: 6; radius: 3; color: "#313244"; anchors.verticalCenter: parent.verticalCenter
+                                                width: agBrainCol.width * 0.48; height: 6; radius: 3; color: root.thBgElevated; anchors.verticalCenter: parent.verticalCenter
                                                 Rectangle { width: Math.min(1, Math.max(0.1, modelData.val / 2.0)) * parent.width; height: parent.height; radius: 3; color: modelData.col }
                                             }
-                                            Text { width: agBrainCol.width * 0.18 - 12; horizontalAlignment: Text.AlignRight; text: modelData.val.toFixed(2) + "×"; color: "#cdd6f4"; font.pixelSize: 9; font.bold: true }
+                                            Text { width: agBrainCol.width * 0.18 - 12; horizontalAlignment: Text.AlignRight; text: modelData.val.toFixed(2) + "×"; color: root.thTextPrimary; font.pixelSize: 9; font.bold: true }
                                         }
                                     }
                                     Flow {
                                         width: parent.width; spacing: 4
                                         visible: (agentTabCol.pa.cooldowns || []).length > 0
-                                        Text { text: "Loss Cooldowns:"; color: "#f38ba8"; font.pixelSize: 9; font.bold: true }
+                                        Text { text: "Loss Cooldowns:"; color: root.thLoss; font.pixelSize: 9; font.bold: true }
                                         Repeater {
                                             model: agentTabCol.pa.cooldowns || []
                                             delegate: Rectangle {
-                                                width: cdChipTxt.implicitWidth + 10; height: Style.space(16); radius: 3; color: "#3d2229"
-                                                Text { id: cdChipTxt; anchors.centerIn: parent; text: modelData.symbol + " (" + modelData.until + ")"; color: "#f38ba8"; font.pixelSize: 8; font.bold: true }
+                                                width: cdChipTxt.implicitWidth + 10; height: Style.space(16); radius: 3; color: root.thLossBg
+                                                Text { id: cdChipTxt; anchors.centerIn: parent; text: modelData.symbol + " (" + modelData.until + ")"; color: root.thLoss; font.pixelSize: 8; font.bold: true }
                                             }
                                         }
                                     }
@@ -7132,23 +7368,23 @@ Panel {
                             Rectangle {
                                 width: parent.width
                                 height: agLessCol.implicitHeight + Style.space(14)
-                                radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
+                                radius: 8; color: root.thBgCard; border.color: root.thBorder; border.width: 1
                                 Column {
                                     id: agLessCol
                                     anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(7) }
                                     spacing: Style.space(5)
-                                    Text { text: "Lessons Learned (" + (agentTabCol.pa.lessons || []).length + ")"; color: "#cba6f7"; font.pixelSize: Style.font.body; font.bold: true }
+                                    Text { text: "Lessons Learned (" + (agentTabCol.pa.lessons || []).length + ")"; color: root.thSecondary; font.pixelSize: Style.font.body; font.bold: true }
                                     Text {
                                         visible: (agentTabCol.pa.lessons || []).length === 0
                                         text: "Lessons appear automatically once trades close — diagnosing wins, fee drag, and mistakes to adapt rules."
-                                        color: "#6c7086"; font.pixelSize: 9; wrapMode: Text.WordWrap; width: parent.width
+                                        color: root.thTextDim; font.pixelSize: 9; wrapMode: Text.WordWrap; width: parent.width
                                     }
                                     Repeater {
                                         model: (agentTabCol.pa.lessons || []).slice(0, 6)
                                         delegate: Rectangle {
                                             width: agLessCol.width; height: agLsInner.implicitHeight + 8; radius: 5
-                                            color: "#11111b"
-                                            border.color: modelData.type === "WIN" ? "#243b2c" : (modelData.type === "TRAIN" ? "#1e2e4a" : "#4a242d"); border.width: 1
+                                            color: root.thBgSubtle
+                                            border.color: modelData.type === "WIN" ? root.thGainBg : (modelData.type === "TRAIN" ? root.thAccentBg : "#4a242d"); border.width: 1
                                             Column {
                                                 id: agLsInner
                                                 anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter; margins: 5 }
@@ -7158,12 +7394,12 @@ Panel {
                                                     Rectangle {
                                                         id: lsTagRect
                                                         width: lsTag.implicitWidth + 6; height: lsTag.implicitHeight + 2; radius: 3
-                                                        color: modelData.type === "WIN" ? "#1f3a27" : (modelData.type === "TRAIN" ? "#1e2e4a" : "#3d2229")
-                                                        Text { id: lsTag; anchors.centerIn: parent; text: modelData.type; color: modelData.type === "WIN" ? "#a6e3a1" : (modelData.type === "TRAIN" ? "#89b4fa" : "#f38ba8"); font.pixelSize: 8; font.bold: true }
+                                                        color: modelData.type === "WIN" ? root.thGainBg : (modelData.type === "TRAIN" ? root.thAccentBg : root.thLossBg)
+                                                        Text { id: lsTag; anchors.centerIn: parent; text: modelData.type; color: modelData.type === "WIN" ? root.thGain : (modelData.type === "TRAIN" ? root.thAccent : root.thLoss); font.pixelSize: 8; font.bold: true }
                                                     }
-                                                    Text { text: modelData.date + " • " + modelData.summary; color: "#cdd6f4"; font.pixelSize: 9; font.bold: true; elide: Text.ElideRight; width: Math.max(40, parent.width - lsTagRect.width - 8) }
+                                                    Text { text: modelData.date + " • " + modelData.summary; color: root.thTextPrimary; font.pixelSize: 9; font.bold: true; elide: Text.ElideRight; width: Math.max(40, parent.width - lsTagRect.width - 8) }
                                                 }
-                                                Text { text: "↳ " + (modelData.adjustment || ""); color: "#a6adc8"; font.pixelSize: 8; wrapMode: Text.WordWrap; width: parent.width }
+                                                Text { text: "↳ " + (modelData.adjustment || ""); color: root.thTextMuted; font.pixelSize: 8; wrapMode: Text.WordWrap; width: parent.width }
                                             }
                                         }
                                     }
@@ -7174,20 +7410,20 @@ Panel {
                             Rectangle {
                                 width: parent.width
                                 height: agTrdCol.implicitHeight + Style.space(14)
-                                radius: 8; color: "#181825"; border.color: "#313244"; border.width: 1
+                                radius: 8; color: root.thBgCard; border.color: root.thBorder; border.width: 1
                                 Column {
                                     id: agTrdCol
                                     anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(7) }
                                     spacing: Style.space(5)
                                     Row {
                                         width: parent.width
-                                        Text { width: parent.width * 0.65; text: "Paper Fills & Contract Notes (" + (agentTabCol.pa.trades || []).length + ")"; color: "#89dceb"; font.pixelSize: Style.font.body; font.bold: true }
-                                        Text { width: parent.width * 0.35; horizontalAlignment: Text.AlignRight; text: "Click row for receipt"; color: "#6c7086"; font.pixelSize: 9 }
+                                        Text { width: parent.width * 0.65; text: "Paper Fills & Contract Notes (" + (agentTabCol.pa.trades || []).length + ")"; color: root.thInfo; font.pixelSize: Style.font.body; font.bold: true }
+                                        Text { width: parent.width * 0.35; horizontalAlignment: Text.AlignRight; text: "Click row for receipt"; color: root.thTextDim; font.pixelSize: 9 }
                                     }
                                     Text {
                                         visible: (agentTabCol.pa.trades || []).length === 0
                                         text: "No paper fills yet — click ⚡ Step or ▶ Replay above."
-                                        color: "#6c7086"; font.pixelSize: 9
+                                        color: root.thTextDim; font.pixelSize: 9
                                     }
                                     Repeater {
                                         model: (agentTabCol.pa.trades || []).slice(0, 12)
@@ -7195,8 +7431,8 @@ Panel {
                                             id: trdDelRoot
                                             width: agTrdCol.width
                                             height: trdItemCol.implicitHeight + 8
-                                            radius: 5; color: root.selectedContractId === modelData.id ? "#1e1e2e" : "#11111b"
-                                            border.color: root.selectedContractId === modelData.id ? "#89b4fa" : "#242436"; border.width: 1
+                                            radius: 5; color: root.selectedContractId === modelData.id ? root.thBgSubtle : root.thBgSubtle
+                                            border.color: root.selectedContractId === modelData.id ? root.thAccent : root.thBgActiveTab; border.width: 1
                                             property var cn: modelData.contract_note || ({})
                                             property bool expanded: root.selectedContractId === modelData.id
 
@@ -7215,19 +7451,19 @@ Panel {
                                                     Rectangle {
                                                         id: tdSdBadge
                                                         width: tdSdTxt.implicitWidth + 6; height: tdSdTxt.implicitHeight + 2; radius: 3
-                                                        color: modelData.side === "BUY" ? "#1f3a27" : "#3d2229"
-                                                        Text { id: tdSdTxt; anchors.centerIn: parent; text: modelData.side; color: modelData.side === "BUY" ? "#a6e3a1" : "#f38ba8"; font.pixelSize: 8; font.bold: true }
+                                                        color: modelData.side === "BUY" ? root.thGainBg : root.thLossBg
+                                                        Text { id: tdSdTxt; anchors.centerIn: parent; text: modelData.side; color: modelData.side === "BUY" ? root.thGain : root.thLoss; font.pixelSize: 8; font.bold: true }
                                                     }
-                                                    Text { id: tdSymTxt; text: modelData.date.slice(5) + " " + modelData.symbol; color: "#cdd6f4"; font.pixelSize: 9; font.bold: true }
-                                                    Text { id: tdPxTxt; text: modelData.shares + " shares @ " + root.fmtPrice(modelData.price, modelData.currency); color: "#a6adc8"; font.pixelSize: 9 }
+                                                    Text { id: tdSymTxt; text: modelData.date.slice(5) + " " + modelData.symbol; color: root.thTextPrimary; font.pixelSize: 9; font.bold: true }
+                                                    Text { id: tdPxTxt; text: modelData.shares + " shares @ " + root.fmtPrice(modelData.price, modelData.currency); color: root.thTextMuted; font.pixelSize: 9 }
                                                     Text {
                                                         width: Math.max(40, parent.width - tdSdBadge.width - tdSymTxt.implicitWidth - tdPxTxt.implicitWidth - 14); horizontalAlignment: Text.AlignRight
                                                         text: modelData.realized_net_pnl_usd !== null && modelData.realized_net_pnl_usd !== undefined
                                                             ? ((Number(modelData.realized_net_pnl_usd) >= 0 ? "+" : "-") + "$" + Math.abs(Number(modelData.realized_net_pnl_usd)).toFixed(2) + " net")
                                                             : ("Fee " + Number((modelData.contract_note || ({})).total_fee_pct || 0).toFixed(2) + "%")
                                                         color: modelData.realized_net_pnl_usd !== null && modelData.realized_net_pnl_usd !== undefined
-                                                            ? (Number(modelData.realized_net_pnl_usd) >= 0 ? "#a6e3a1" : "#f38ba8")
-                                                            : "#f9e2af"
+                                                            ? (Number(modelData.realized_net_pnl_usd) >= 0 ? root.thGain : root.thLoss)
+                                                            : root.thWarn
                                                         font.pixelSize: 9; font.bold: true; elide: Text.ElideLeft
                                                     }
                                                 }
@@ -7237,18 +7473,18 @@ Panel {
                                                     width: parent.width
                                                     visible: Boolean(trdDelRoot.expanded)
                                                     height: cnBoxCol.implicitHeight + 8
-                                                    radius: 4; color: "#181825"; border.color: "#313244"; border.width: 1
+                                                    radius: 4; color: root.thBgCard; border.color: root.thBorder; border.width: 1
                                                     Column {
                                                         id: cnBoxCol
                                                         anchors { left: parent.left; right: parent.right; top: parent.top; margins: 4 }
                                                         spacing: 2
                                                         property var c: (modelData.contract_note || ({}))
-                                                        Text { text: (cnBoxCol.c.exchange || "VFEX") + " Contract Note (" + (modelData.reasons || []).join(" • ") + ")"; color: "#89b4fa"; font.pixelSize: 8; font.bold: true; elide: Text.ElideRight; width: parent.width }
-                                                        Text { text: "Gross Consideration: " + root.fmtShortMoney(cnBoxCol.c.gross, cnBoxCol.c.currency); color: "#cdd6f4"; font.pixelSize: 8 }
-                                                        Text { text: "Brokerage (" + Number(cnBoxCol.c.brokerage_pct || 0).toFixed(2) + "%): " + root.fmtShortMoney(cnBoxCol.c.brokerage, cnBoxCol.c.currency) + "  •  VAT (15%): " + root.fmtShortMoney(cnBoxCol.c.vat, cnBoxCol.c.currency); color: "#a6adc8"; font.pixelSize: 8 }
-                                                        Text { text: "Platform (" + Number(cnBoxCol.c.platform_levy_pct || 0).toFixed(2) + "%): " + root.fmtShortMoney(cnBoxCol.c.platform_levy, cnBoxCol.c.currency) + "  •  SECZ (" + Number(cnBoxCol.c.secz_levy_pct || 0).toFixed(2) + "%): " + root.fmtShortMoney(cnBoxCol.c.secz_levy, cnBoxCol.c.currency); color: "#a6adc8"; font.pixelSize: 8 }
-                                                        Text { text: "Stamp Duty (" + Number(cnBoxCol.c.stamp_duty_pct || 0).toFixed(2) + "%): " + root.fmtShortMoney(cnBoxCol.c.stamp_duty, cnBoxCol.c.currency) + "  •  CGT (" + Number(cnBoxCol.c.cgt_pct || 0).toFixed(2) + "%): " + root.fmtShortMoney(cnBoxCol.c.cgt, cnBoxCol.c.currency); color: "#a6adc8"; font.pixelSize: 8 }
-                                                        Text { text: "Total Charges: " + root.fmtShortMoney(cnBoxCol.c.total_charges, cnBoxCol.c.currency) + " (" + Number(cnBoxCol.c.total_fee_pct || 0).toFixed(2) + "%)  |  Net Settlement: " + root.fmtShortMoney(cnBoxCol.c.net_settlement, cnBoxCol.c.currency); color: "#f9e2af"; font.pixelSize: 8; font.bold: true; wrapMode: Text.WordWrap; width: parent.width }
+                                                        Text { text: (cnBoxCol.c.exchange || "VFEX") + " Contract Note (" + (modelData.reasons || []).join(" • ") + ")"; color: root.thAccent; font.pixelSize: 8; font.bold: true; elide: Text.ElideRight; width: parent.width }
+                                                        Text { text: "Gross Consideration: " + root.fmtShortMoney(cnBoxCol.c.gross, cnBoxCol.c.currency); color: root.thTextPrimary; font.pixelSize: 8 }
+                                                        Text { text: "Brokerage (" + Number(cnBoxCol.c.brokerage_pct || 0).toFixed(2) + "%): " + root.fmtShortMoney(cnBoxCol.c.brokerage, cnBoxCol.c.currency) + "  •  VAT (15%): " + root.fmtShortMoney(cnBoxCol.c.vat, cnBoxCol.c.currency); color: root.thTextMuted; font.pixelSize: 8 }
+                                                        Text { text: "Platform (" + Number(cnBoxCol.c.platform_levy_pct || 0).toFixed(2) + "%): " + root.fmtShortMoney(cnBoxCol.c.platform_levy, cnBoxCol.c.currency) + "  •  SECZ (" + Number(cnBoxCol.c.secz_levy_pct || 0).toFixed(2) + "%): " + root.fmtShortMoney(cnBoxCol.c.secz_levy, cnBoxCol.c.currency); color: root.thTextMuted; font.pixelSize: 8 }
+                                                        Text { text: "Stamp Duty (" + Number(cnBoxCol.c.stamp_duty_pct || 0).toFixed(2) + "%): " + root.fmtShortMoney(cnBoxCol.c.stamp_duty, cnBoxCol.c.currency) + "  •  CGT (" + Number(cnBoxCol.c.cgt_pct || 0).toFixed(2) + "%): " + root.fmtShortMoney(cnBoxCol.c.cgt, cnBoxCol.c.currency); color: root.thTextMuted; font.pixelSize: 8 }
+                                                        Text { text: "Total Charges: " + root.fmtShortMoney(cnBoxCol.c.total_charges, cnBoxCol.c.currency) + " (" + Number(cnBoxCol.c.total_fee_pct || 0).toFixed(2) + "%)  |  Net Settlement: " + root.fmtShortMoney(cnBoxCol.c.net_settlement, cnBoxCol.c.currency); color: root.thWarn; font.pixelSize: 8; font.bold: true; wrapMode: Text.WordWrap; width: parent.width }
                                                     }
                                                 }
                                             }

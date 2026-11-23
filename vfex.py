@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import contextlib
 import csv
 from email.utils import parsedate_to_datetime
+import fcntl
 import hashlib
 import html as html_lib
 import http.cookiejar
@@ -17,6 +19,8 @@ import re
 import stat
 import subprocess
 import sys
+import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -1162,25 +1166,34 @@ def _classify_agent_playbook(
 
 
 def _mahoraga_feature_vector(feats: dict[str, Any]) -> dict[str, float]:
-    """Normalize raw candidate features into bounded model inputs."""
+    """Normalize raw candidate features into bounded 16-dim universal model inputs."""
     dip = max(0.0, float(feats.get("dip_30d") or 0.0))
     rsi = feats.get("rsi14")
-    rsi_os = max(0.0, (50.0 - float(rsi)) / 25.0) if rsi is not None else 0.0
+    rsi_os = max(-1.5, min(1.5, (50.0 - float(rsi)) / 25.0)) if rsi is not None else 0.0
     book_r = max(0.0, float(feats.get("book_ratio") or 0.0) - 1.0)
-    news_imp = max(0.0, float(feats.get("news_impact") or 0.0))
+    news_imp = float(feats.get("news_impact") or 0.0)
     spread = max(0.0, float(feats.get("spread_pct") or 0.0))
     has_vol = 1.0 if float(feats.get("vol_pts") or 0.0) > 0.0 else 0.0
     regime_s = float(feats.get("regime_score") or 0.0)
+    fb = _load_foundation_brain()
+    macro = (fb.get("macro_snapshot") or {}) if isinstance(fb, dict) else {}
     return {
         "bias": 1.0,
         "dip": round(min(1.5, dip / 10.0), 4),
-        "rsi_oversold": round(min(1.5, rsi_os), 4),
+        "rsi_oversold": round(rsi_os, 4),
         "book": round(min(1.5, book_r / 3.0), 4),
-        "news": round(min(1.5, news_imp / 20.0), 4),
+        "news": round(max(-1.5, min(1.5, news_imp / 20.0)), 4),
         "volume": has_vol,
         "regime": round(max(-1.0, min(1.0, regime_s)), 2),
         "spread": round(min(2.0, spread / 12.0), 4),
         "zse": 1.0 if feats.get("is_zse") else 0.0,
+        "mom_5d": round(max(-1.5, min(1.5, float(feats.get("mom_5d") or 0.0))), 4),
+        "mom_20d": round(max(-1.5, min(1.5, float(feats.get("mom_20d") or 0.0))), 4),
+        "trend_ma": round(max(-1.5, min(1.5, float(feats.get("trend_ma") or 0.0))), 4),
+        "vol_20d": round(max(0.0, min(2.0, float(feats.get("vol_20d") or 0.0))), 4),
+        "drawdown_60d": round(max(0.0, min(1.5, float(feats.get("drawdown_60d") or 0.0))), 4),
+        "macro_gold": round(float(feats.get("macro_gold", macro.get("macro_gold", 0.0)) or 0.0), 4),
+        "macro_vix": round(float(feats.get("macro_vix", macro.get("macro_vix", 0.0)) or 0.0), 4),
     }
 
 
@@ -1202,6 +1215,94 @@ def _grok_mlp_logit(grok: dict[str, Any], feat_vec: dict[str, float]) -> float:
         pre = float(b1[j]) + sum(float(row[i]) * x[i] for i in range(len(x)))
         out += float(w2[j]) * math.tanh(max(-6.0, min(6.0, pre)))
     return max(-4.0, min(4.0, out))
+
+
+_FOUNDATION_BRAIN_CACHE: dict[str, Any] | None = None
+_FOUNDATION_BRAIN_MTIME: float = -1.0
+
+
+def _load_foundation_brain() -> dict[str, Any] | None:
+    """Load compact zero-dependency pre-trained Mahoraga foundation weights if present."""
+    global _FOUNDATION_BRAIN_CACHE, _FOUNDATION_BRAIN_MTIME
+    wpath = Path(__file__).resolve().parent / "mahoraga_weights.json"
+    try:
+        if not wpath.exists():
+            return None
+        mt = wpath.stat().st_mtime
+        if _FOUNDATION_BRAIN_CACHE is not None and mt == _FOUNDATION_BRAIN_MTIME:
+            return _FOUNDATION_BRAIN_CACHE
+        data = json.loads(wpath.read_text(encoding="utf-8"))
+        if isinstance(data, dict) and (data.get("models") or (data.get("W1") and data.get("W2"))):
+            _FOUNDATION_BRAIN_CACHE = data
+            _FOUNDATION_BRAIN_MTIME = mt
+            return data
+    except Exception:
+        pass
+    return None
+
+
+def _layernorm_1d(vec: list[float], eps: float = 1e-5) -> list[float]:
+    import math
+    n = len(vec)
+    if n == 0:
+        return vec
+    mean = sum(vec) / n
+    var = sum((v - mean) ** 2 for v in vec) / n
+    inv = 1.0 / math.sqrt(var + eps)
+    return [(v - mean) * inv for v in vec]
+
+
+def _foundation_predict(fb: dict[str, Any], feat_vec: dict[str, float]) -> tuple[float, float, float, float] | None:
+    """Pure-Python forward pass for v2 single MLP or v3 Deep Residual MLP Ensemble -> (p5, ret5, p20, ret20)."""
+    import math
+
+    lin5 = fb.get("linear_5d") or []
+    lin20 = fb.get("linear_20d") or []
+    keys = fb.get("feature_order") or []
+    if not keys or len(lin5) != len(keys) or len(lin20) != len(keys):
+        return None
+    x = [float(feat_vec.get(k, 0.0)) for k in keys]
+    alpha = float(fb.get("residual_alpha") or 0.5)
+    b5 = max(-5.0, min(5.0, sum(float(lin5[i]) * x[i] for i in range(len(x)))))
+    b20 = max(-5.0, min(5.0, sum(float(lin20[i]) * x[i] for i in range(len(x)))))
+
+    # v3: Deep Residual MLP Ensemble (16 -> h1 -> h2 -> 4 with LayerNorm + skip)
+    models = fb.get("models")
+    if isinstance(models, list) and models:
+        p5_s = ret5_s = p20_s = ret20_s = 0.0
+        for m in models:
+            w1, b1 = m["W1"], m["b1"]
+            w2, b2 = m["W2"], m["b2"]
+            wskip = m["Wskip"]
+            w3, b3 = m["W3"], m["b3"]
+            z1 = [float(b1[j]) + sum(float(w1[j][i]) * x[i] for i in range(len(x))) for j in range(len(w1))]
+            a1 = [math.tanh(max(-6.0, min(6.0, v))) for v in _layernorm_1d(z1)]
+            z2 = [
+                float(b2[j])
+                + sum(float(w2[j][i]) * a1[i] for i in range(len(a1)))
+                + sum(float(wskip[j][i]) * x[i] for i in range(len(x)))
+                for j in range(len(w2))
+            ]
+            a2 = [math.tanh(max(-6.0, min(6.0, v))) for v in _layernorm_1d(z2)]
+            out = [float(b3[k]) + sum(float(w3[k][j]) * a2[j] for j in range(len(a2))) for k in range(4)]
+            z5 = max(-6.0, min(6.0, b5 + alpha * max(-4.0, min(4.0, out[0]))))
+            z20 = max(-6.0, min(6.0, b20 + alpha * max(-4.0, min(4.0, out[2]))))
+            p5_s += 1.0 / (1.0 + math.exp(-z5))
+            ret5_s += out[1] * 10.0
+            p20_s += 1.0 / (1.0 + math.exp(-z20))
+            ret20_s += out[3] * 15.0
+        k_n = float(len(models))
+        return p5_s / k_n, ret5_s / k_n, p20_s / k_n, ret20_s / k_n
+
+    # v2 fallback: single hidden layer MLP
+    w1, b1, w2, b2 = fb.get("W1") or [], fb.get("b1") or [], fb.get("W2") or [], fb.get("b2") or []
+    if not w1 or not w2 or len(w2) != 4 or len(b2) != 4:
+        return None
+    h = [math.tanh(max(-6.0, min(6.0, float(b1[j]) + sum(float(w1[j][i]) * x[i] for i in range(len(x)))))) for j in range(len(w1))]
+    out = [float(b2[k]) + sum(float(w2[k][j]) * h[j] for j in range(len(h))) for k in range(4)]
+    z5 = max(-6.0, min(6.0, b5 + alpha * max(-4.0, min(4.0, out[0]))))
+    z20 = max(-6.0, min(6.0, b20 + alpha * max(-4.0, min(4.0, out[2]))))
+    return 1.0 / (1.0 + math.exp(-z5)), out[1] * 10.0, 1.0 / (1.0 + math.exp(-z20)), out[3] * 15.0
 
 
 def _mahoraga_predict(
@@ -1228,6 +1329,17 @@ def _mahoraga_predict(
         z += float(grok.get("residual_alpha") or 0.45) * _grok_mlp_logit(grok, feat_vec)
     z = max(-6.0, min(6.0, z))
     prob = 1.0 / (1.0 + math.exp(-z))
+
+    # Blend with pre-trained multi-market foundation brain if available and enabled
+    fb = _load_foundation_brain()
+    if fb and fb.get("enabled"):
+        fpred = _foundation_predict(fb, feat_vec)
+        if fpred is not None:
+            p5, _ret5, p20, _ret20 = fpred
+            fb_prob = 0.45 * p5 + 0.55 * p20
+            # Blend: 65% foundation world-model + 35% local live adaptation
+            prob = 0.65 * fb_prob + 0.35 * prob
+
     fee_drag = 4.38 if is_zse else 2.08
     exp_net = (prob * avg_win - (1.0 - prob) * avg_loss) - (fee_drag * 0.45)
     ucb_bonus = min(2.4, 2.4 / math.sqrt(pb_trials + 1.0))
@@ -1651,14 +1763,12 @@ class VFEXStore:
         self.config_dir = config_dir or DEFAULT_CONFIG_DIR
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.state_file = self.config_dir / "state.json"
+        self.backup_file = self.config_dir / "state.json.bak"
+        self.lock_file = self.config_dir / ".state.lock"
         self.state: dict[str, Any] = self._load()
 
-    def _load(self) -> dict[str, Any]:
-        if self.state_file.exists():
-            try:
-                return json.loads(self.state_file.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
-                pass
+    @staticmethod
+    def _default_state() -> dict[str, Any]:
         return {
             "watchlist": ["INSC", "SIM", "PHL"],
             "prices": {},
@@ -1673,8 +1783,74 @@ class VFEXStore:
             "trading_goal": "",
         }
 
+    @contextlib.contextmanager
+    def _state_lock(self, exclusive: bool = False):
+        lock_fh = self.lock_file.open("a+", encoding="utf-8")
+        try:
+            fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_fh.fileno(), fcntl.LOCK_UN)
+        finally:
+            lock_fh.close()
+
+    def _atomic_write_text(self, target: Path, content: str, mode: int | None = None) -> None:
+        fd, tmp_name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=str(self.config_dir))
+        tmp_path = Path(tmp_name)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(content)
+                fh.flush()
+                os.fsync(fh.fileno())
+            if mode is not None:
+                os.chmod(tmp_path, mode)
+            os.replace(tmp_path, target)
+        except Exception:
+            with contextlib.suppress(OSError):
+                tmp_path.unlink(missing_ok=True)
+            raise
+
+    @staticmethod
+    def _read_valid_state_file(path: Path) -> dict[str, Any] | None:
+        if not path.exists():
+            return None
+        try:
+            raw = path.read_text(encoding="utf-8")
+            if not raw.strip():
+                return None
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else None
+        except (OSError, json.JSONDecodeError):
+            return None
+
+    def _load(self) -> dict[str, Any]:
+        with self._state_lock(exclusive=False):
+            if self.state_file.exists():
+                for attempt in range(3):
+                    loaded = self._read_valid_state_file(self.state_file)
+                    if loaded is not None:
+                        return loaded
+                    if attempt < 2:
+                        time.sleep(0.02)
+                backup_loaded = self._read_valid_state_file(self.backup_file)
+                with contextlib.suppress(OSError):
+                    corrupt_raw = self.state_file.read_text(encoding="utf-8", errors="replace")
+                    if corrupt_raw.strip():
+                        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+                        self._atomic_write_text(self.config_dir / f"state.json.corrupt.{stamp}", corrupt_raw)
+                if backup_loaded is not None:
+                    return backup_loaded
+            return self._default_state()
+
     def save(self) -> None:
-        self.state_file.write_text(json.dumps(self.state, indent=2) + "\n", encoding="utf-8")
+        payload = json.dumps(self.state, indent=2) + "\n"
+        with self._state_lock(exclusive=True):
+            if self.state_file.exists():
+                existing = self._read_valid_state_file(self.state_file)
+                if existing is not None:
+                    self._atomic_write_text(self.backup_file, self.state_file.read_text(encoding="utf-8"))
+            self._atomic_write_text(self.state_file, payload)
 
     def set_trading_goal(self, goal: str) -> str:
         """Persist a local UI trading goal override ('long', 'short', 'hybrid') or clear ('auto')."""
@@ -4875,6 +5051,12 @@ class VFEXStore:
             sb = live_agent["brain"]
             episodes = _build_history_episodes(live_agent, self.state.get("history", {}), prices_live)
             grok_res = _train_grokking_model(sb, episodes, today_str=today_str)
+            fb = _load_foundation_brain()
+            if fb and fb.get("enabled") and not grok_res.get("enabled"):
+                grok_res["enabled"] = True
+                grok_res["status"] = str(fb.get("status") or "Grokked (Foundation)")
+                fb_m = fb.get("metrics") or {}
+                grok_res.setdefault("metrics", {}).update(fb_m)
             gm = grok_res.get("metrics") or {}
             today = today_str
             imms = [v["label"] for v in (sb.get("immunities") or {}).values() if v.get("active")]

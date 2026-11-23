@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import qs.Commons
 import qs.Ui
 
 BarWidget {
@@ -16,6 +17,7 @@ BarWidget {
     property string tooltipBody: "VFEX Direct — Click to open portfolio & watchlist"
     property var summaryData: ({ text: "VFEX --", tooltip: "", class: "neutral", watchlist: [], signals: [] })
     property int rotIndex: 0
+    property var activeFrame: ({ kind: "portfolio", tag: "VFEX", value: "$--", delta: "", tone: "neutral", adv: 0, dec: 0 })
     property bool notchPeekOpen: false
     property bool notchSurfaceHovered: false
 
@@ -86,9 +88,11 @@ BarWidget {
         if (!item) return ""
         var pref = item.currency === "ZWG" ? "ZiG " : "$"
         var p = (item.price !== null && item.price !== undefined) ? (pref + Number(item.price).toFixed(4)) : "--"
-        var c = (item.change_pct !== null && item.change_pct !== undefined)
-            ? (" " + (Number(item.change_pct) >= 0 ? "▲+" : "▼") + Number(item.change_pct).toFixed(1) + "%")
-            : ""
+        var c = ""
+        if (item.change_pct !== null && item.change_pct !== undefined) {
+            var ch = Number(item.change_pct)
+            c = " " + (ch >= 0 ? ("+" + Math.abs(ch).toFixed(1) + "% ▲") : (Math.abs(ch).toFixed(1) + "% ▼"))
+        }
         return item.symbol + " " + p + c
     }
 
@@ -189,12 +193,27 @@ BarWidget {
         var prefix = alerts.length > 0 ? "⚠ " : (d.market_status === "Open" ? "● " : "")
         var baseText = d.text || "VFEX --"
         var defaultFg = root.bar ? root.bar.barForeground : "#cdd6f4"
+        var isGainClass = (d.class === "profit" || d.class === "gain")
+        var isLossClass = (d.class === "loss")
+        var pfVal = Number(d.total_value || 0) > 0 ? ("$" + Number(d.total_value || 0).toFixed(2)) : ((d.zwg_value || 0) > 0 ? ("ZiG " + Number(d.zwg_value).toFixed(2)) : baseText.replace(/^VFEX\s*/, ""))
+        var pfPnl = Number(d.total_value || 0) > 0 ? Number(d.total_pnl || 0) : 0
+        var pfDelta = Number(d.total_value || 0) > 0 ? ((pfPnl >= 0 ? "+" : "-") + "$" + Math.abs(pfPnl).toFixed(2)) : ""
+        var pfTone = alerts.length > 0 ? "warn" : (isGainClass ? "gain" : (isLossClass ? "loss" : "neutral"))
+        var pfFrame = {
+            kind: "portfolio",
+            tag: "VFEX",
+            value: pfVal || "--",
+            delta: pfDelta,
+            tone: pfTone,
+            text: baseText,
+            fg: isGainClass ? "#a6e3a1" : (isLossClass ? "#f38ba8" : defaultFg)
+        }
 
         if (alerts.length > 0) {
             root.barForeground = "#f9e2af"
-        } else if (d.class === "gain") {
+        } else if (isGainClass) {
             root.barForeground = "#a6e3a1"
-        } else if (d.class === "loss") {
+        } else if (isLossClass) {
             root.barForeground = "#f38ba8"
         } else {
             root.barForeground = defaultFg
@@ -202,40 +221,79 @@ BarWidget {
 
         if (root.cfgBarMode === "Compact") {
             root.barText = prefix + baseText
+            root.activeFrame = pfFrame
             return
         }
         if (root.cfgBarMode === "Portfolio") {
             var sigSuffix = sigs.length > 0 ? (" • ★" + sigs.length) : ""
             root.barText = prefix + baseText + sigSuffix
+            root.activeFrame = ({
+                kind: "portfolio",
+                tag: "VFEX",
+                value: pfFrame.value,
+                delta: sigs.length > 0 ? (pfDelta + " • ★" + sigs.length) : pfDelta,
+                tone: pfFrame.tone
+            })
             return
         }
 
         // Rotating mode: Portfolio -> Watched quotes -> Top Signal -> Market Breadth
-        var frames = [{ text: baseText, tone: d.class === "gain" ? "#a6e3a1" : (d.class === "loss" ? "#f38ba8" : defaultFg) }]
+        var frames = [pfFrame]
         var wl = d.watchlist || []
         for (var i = 0; i < wl.length; i++) {
-            var chg = wl[i].change_pct
+            var wItem = wl[i]
+            var chg = wItem.change_pct
+            var wPref = wItem.currency === "ZWG" ? "ZiG " : "$"
+            var wPx = (wItem.price !== null && wItem.price !== undefined) ? (wPref + Number(wItem.price).toFixed(4)) : "--"
+            var wDelta = ""
+            var wToneName = "neutral"
+            if (chg !== null && chg !== undefined) {
+                var cNum = Number(chg)
+                wDelta = (cNum >= 0 ? "+" : "") + Math.abs(cNum).toFixed(1) + "% " + (cNum >= 0 ? "▲" : "▼")
+                wToneName = cNum > 0 ? "gain" : (cNum < 0 ? "loss" : "neutral")
+            }
             var tone = (chg !== null && chg !== undefined) ? (Number(chg) > 0 ? "#a6e3a1" : (Number(chg) < 0 ? "#f38ba8" : defaultFg)) : defaultFg
-            frames.push({ text: root.fmtWatchTicker(wl[i]), tone: tone })
+            frames.push({
+                kind: "quote",
+                tag: String(wItem.symbol || ""),
+                value: wPx,
+                delta: wDelta,
+                tone: wToneName,
+                text: root.fmtWatchTicker(wItem),
+                fg: tone
+            })
         }
         if (sigs.length > 0) {
             var top = sigs[0]
             var more = sigs.length > 1 ? (" +" + (sigs.length - 1)) : ""
             frames.push({
+                kind: "signal",
+                tag: top.action,
+                value: top.symbol,
+                delta: String(top.score || 0) + "%" + more,
+                tone: top.action === "SELL" ? "loss" : "gain",
                 text: "★ " + top.action + " " + top.symbol + " " + (top.score || 0) + "%" + more,
-                tone: top.action === "SELL" ? "#f38ba8" : "#a6e3a1"
+                fg: top.action === "SELL" ? "#f38ba8" : "#a6e3a1"
             })
         }
         if ((br.total || 0) > 0) {
             frames.push({
-                text: "MKT ▲" + (br.advancers || 0) + " ▼" + (br.decliners || 0),
-                tone: Number(br.advancers || 0) >= Number(br.decliners || 0) ? "#a6e3a1" : "#f38ba8"
+                kind: "breadth",
+                tag: "MKT",
+                value: "",
+                delta: "",
+                adv: Number(br.advancers || 0),
+                dec: Number(br.decliners || 0),
+                tone: Number(br.advancers || 0) >= Number(br.decliners || 0) ? "gain" : "loss",
+                text: "MKT " + (br.advancers || 0) + "▲ / " + (br.decliners || 0) + "▼",
+                fg: Number(br.advancers || 0) >= Number(br.decliners || 0) ? "#a6e3a1" : "#f38ba8"
             })
         }
         var len = frames.length || 1
         var idx = ((root.rotIndex % len) + len) % len
         root.barText = prefix + frames[idx].text
-        root.barForeground = alerts.length > 0 ? "#f9e2af" : frames[idx].tone
+        root.barForeground = alerts.length > 0 ? "#f9e2af" : frames[idx].fg
+        root.activeFrame = frames[idx]
     }
 
     function open() {
@@ -286,7 +344,8 @@ BarWidget {
         notchLoader.item.hovered = true
     }
 
-    implicitWidth: button.implicitWidth
+    readonly property real matrixCapsuleWidth: Math.max(Style.space(84), Math.ceil(nothingBarRow.implicitWidth) + 22)
+    implicitWidth: root.cfgNothingMatrixBar ? root.matrixCapsuleWidth : button.implicitWidth
     implicitHeight: button.implicitHeight
     onBarChanged: { injectPanel(); injectNotch() }
     onBarTextChanged: injectNotch()
@@ -396,8 +455,9 @@ BarWidget {
         anchors.fill: parent
         bar: root.bar
         text: root.barText
-        foreground: root.cfgNothingMatrixBar ? ((root.summaryData.alerts || []).length > 0 || String(root.barForeground) === "#f38ba8" ? "#ff2a3c" : (String(root.barForeground) === "#a6e3a1" ? "#4ade80" : "#f4f4f6")) : root.barForeground
-        horizontalMargin: root.cfgNothingMatrixBar ? 13 : 8.5
+        labelVisible: !root.cfgNothingMatrixBar
+        fixedWidth: root.cfgNothingMatrixBar ? root.matrixCapsuleWidth : -1
+        foreground: root.barForeground
         tooltipText: root.cfgNothingNotch ? "" : root.tooltipBody
         active: (root.summaryData.alerts || []).length > 0
         onTooltipHoveredChanged: root.updateNotchPeekState()
@@ -408,24 +468,114 @@ BarWidget {
         }
 
         Rectangle {
+            id: nothingBarCapsule
             z: -1
             visible: root.cfgNothingMatrixBar && root.barText !== ""
+            clip: true
             anchors.centerIn: parent
-            width: Math.max(24, parent.width - 4)
-            height: Math.max(18, parent.height - 6)
+            width: Math.max(24, parent.width - 2)
+            height: Math.max(20, parent.height - 6)
             radius: height / 2
+            scale: button.pressScale
             color: "#050507"
             border.color: (root.summaryData.alerts || []).length > 0 ? "#ff2a3c" : "#27272a"
             border.width: 1
 
-            Rectangle {
-                anchors.left: parent.left
-                anchors.leftMargin: 6
-                anchors.verticalCenter: parent.verticalCenter
-                width: 4
-                height: 4
-                radius: 2
-                color: (root.summaryData.market_status === "Open" || (root.summaryData.alerts || []).length > 0) ? "#ff2a3c" : "#3f3f46"
+            Row {
+                id: nothingBarRow
+                anchors.centerIn: parent
+                spacing: 6
+                property var af: (root.activeFrame || ({}))
+
+                // Status LED Pixel Dot
+                Rectangle {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 5
+                    height: 5
+                    radius: 2.5
+                    color: (root.summaryData.market_status === "Open" || (root.summaryData.alerts || []).length > 0 || root.fetching) ? "#ff2a3c" : "#52525b"
+                }
+
+                // Category / Ticker Tag
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: String(nothingBarRow.af.tag || "") !== ""
+                    text: String(nothingBarRow.af.tag || "VFEX")
+                    color: nothingBarRow.af.kind === "signal"
+                        ? (nothingBarRow.af.tone === "loss" ? "#ff2a3c" : "#4ade80")
+                        : "#a1a1aa"
+                    font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                    font.pixelSize: Math.max(9, Style.font.body - 1)
+                    font.bold: true
+                }
+
+                // Crisp Monochrome Readout ($9.43, $0.2481, ZIMW)
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: String(nothingBarRow.af.value || "") !== ""
+                    text: String(nothingBarRow.af.value || "")
+                    color: "#f4f4f6"
+                    font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                    font.pixelSize: Style.font.body
+                    font.bold: true
+                }
+
+                // Breadth Mode: Separate Green Advancers + Mini Split Meter + Red Decliners
+                Row {
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: nothingBarRow.af.kind === "breadth"
+                    spacing: 4
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: Number(nothingBarRow.af.adv || 0) + "▲"
+                        color: "#4ade80"
+                        font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                        font.pixelSize: Math.max(9, Style.font.body - 1)
+                        font.bold: true
+                    }
+                    Rectangle {
+                        anchors.verticalCenter: parent.verticalCenter
+                        property real aN: Number(nothingBarRow.af.adv || 0)
+                        property real dN: Number(nothingBarRow.af.dec || 0)
+                        width: 18
+                        height: 4
+                        radius: 2
+                        color: "#ff2a3c"
+                        Rectangle {
+                            width: (parent.aN + parent.dN) > 0 ? ((parent.aN / (parent.aN + parent.dN)) * parent.width) : (parent.width * 0.5)
+                            height: parent.height
+                            radius: 2
+                            color: "#4ade80"
+                        }
+                    }
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: Number(nothingBarRow.af.dec || 0) + "▼"
+                        color: "#ff2a3c"
+                        font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                        font.pixelSize: Math.max(9, Style.font.body - 1)
+                        font.bold: true
+                    }
+                }
+
+                // Delta Pill (+$0.93 emerald / 0.2% ▼ red / signal score)
+                Rectangle {
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: String(nothingBarRow.af.delta || "") !== "" && nothingBarRow.af.kind !== "breadth"
+                    width: deltaPillTxt.implicitWidth + 8
+                    height: deltaPillTxt.implicitHeight + 3
+                    radius: height / 2
+                    color: nothingBarRow.af.tone === "gain" ? "#0c2216" : (nothingBarRow.af.tone === "loss" ? "#260b10" : "#18181b")
+                    Text {
+                        id: deltaPillTxt
+                        anchors.centerIn: parent
+                        text: String(nothingBarRow.af.delta || "")
+                        color: nothingBarRow.af.tone === "gain" ? "#4ade80" : (nothingBarRow.af.tone === "loss" ? "#ff2a3c" : "#e4e4e7")
+                        font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                        font.pixelSize: Math.max(8, Style.font.body - 2)
+                        font.bold: true
+                    }
+                }
             }
         }
         onWheelMoved: function(delta) {
